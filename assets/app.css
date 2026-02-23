@@ -1,0 +1,119 @@
+:root{
+  --miapp-primary:#6c63ff;
+  --miapp-primary-contrast:#fff;
+  --miapp-border:#e6e6ef;
+  --miapp-muted:#666;
+  --miapp-bg:#fff;
+  --miapp-radius:12px;
+}
+
+.miapp-card{
+  max-width:760px;
+  padding:16px;
+  border:1px solid var(--miapp-border);
+  border-radius:var(--miapp-radius);
+  background:var(--miapp-bg);
+}
+
+.miapp-row{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  align-items:center;
+  margin-bottom:12px;
+}
+
+.miapp-row input,
+.miapp-row select{
+  padding:10px;
+  border:1px solid #ccc;
+  border-radius:10px;
+  min-width:220px;
+}
+
+.miapp-actions{
+  display:flex;
+  gap:10px;
+  margin-top:16px;
+}
+
+.miapp-btn{
+  padding:10px 16px;
+  border-radius:10px;
+  cursor:pointer;
+  border:none;
+  font-weight:500;
+}
+
+.miapp-btn--primary{
+  background:var(--miapp-primary);
+  color:var(--miapp-primary-contrast);
+}
+
+.miapp-btn--outline{
+  background:#fff;
+  border:1px solid var(--miapp-primary);
+  color:var(--miapp-primary);
+}
+
+.miapp-btn--link{
+  background:none;
+  color:var(--miapp-primary);
+  padding:0;
+}
+
+.miapp-muted{
+  color:var(--miapp-muted);
+  font-size:14px;
+}
+
+.miapp-appt{
+  border:1px solid var(--miapp-border);
+  border-radius:10px;
+  padding:12px;
+  margin-bottom:12px;
+}
+
+.miapp-link{
+  color:var(--miapp-primary);
+  text-decoration:none;
+}
+
+/* -------- MODAL -------- */
+
+body.miapp-modal-open{
+  overflow:hidden;
+}
+
+.miapp-modal{
+  position:fixed;
+  inset:0;
+  display:none;
+  z-index:9999;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+}
+.miapp-modal[aria-hidden="false"]{display:flex}
+.miapp-modal__panel{width:min(760px, 92vw); max-height:90vh; overflow:auto; position:relative; z-index:1}
+
+.miapp-modal__backdrop{
+  position:absolute;
+  inset:0;
+  background:rgba(0,0,0,.45);
+}
+
+.miapp-modal__header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:16px;
+  border-bottom:1px solid var(--miapp-border);
+  position:sticky;
+  top:0;
+  background:#fff;
+}
+
+.miapp-modal__body{
+  padding:16px;
+}
