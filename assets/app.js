@@ -1,567 +1,1033 @@
-// ================================
-// MIAPP Booking - assets/app.js
-// ================================
+(function(){
+  function qs(sel, root){ return (root||document).querySelector(sel); }
+  function qsa(sel, root){ return Array.from((root||document).querySelectorAll(sel)); }
 
-// ---- Shared helpers (global) ----
-window.MIAPP = window.MIAPP || {};
-
-(() => {
-  const pad2 = (n) => String(n).padStart(2, '0');
-  const fmtYMD = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-
-  const parseDaysEnabled = (raw) => {
-    if (!raw) return [1, 2, 3, 4, 5];
-    let arr = String(raw)
-      .split(',')
-      .map(s => parseInt(String(s).trim(), 10))
-      .filter(n => !Number.isNaN(n));
-    // acepta 7 como domingo y normaliza a 0 (JS)
-    arr = arr.map(n => (n === 7 ? 0 : n));
-    return Array.from(new Set(arr));
-  };
-
-  const nextEnabledDate = (d, enabledDays) => {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    for (let i = 0; i < 60; i++) { // busca hasta 60 días
-      if (enabledDays.includes(x.getDay())) return x;
-      x.setDate(x.getDate() + 1);
+  function fmtMoneyCOP(cents){
+    try{
+      return new Intl.NumberFormat('es-CO', {style:'currency', currency:'COP', maximumFractionDigits:0}).format((cents||0)/100);
+    }catch(e){
+      return '$' + Math.round((cents||0)/100).toString();
     }
-    return x;
-  };
+  }
 
-  // Regla de fechas:
-  // - min = hoy
-  // - si ya pasó la hora fin del día (day_end_hour) -> min = mañana (o próximo día habilitado)
-  window.MIAPP.applyBookingRules = (containerEl, fromEl, toEl) => {
-    if (!containerEl || !fromEl || !toEl) return;
 
-    const endHour = parseInt(containerEl.dataset.dayEndHour || '18', 10);
-    const daysEnabled = parseDaysEnabled(containerEl.dataset.daysEnabled || '1,2,3,4,5');
+function renderSummary(modal, service, slot){
+  const box = qs('#miapp-summary', modal);
+  if(!box) return;
+  const serviceName = service ? service.name : '—';
+  const servicePrice = service ? fmtMoneyCOP(service.price_cents) : '—';
+  const serviceDur = service ? (parseInt(service.duration_min||60,10) + ' min') : '—';
+  let when = '—';
+  if(slot && slot.start){
+    try{
+      const d = new Date(slot.start);
+      when = d.toLocaleString('es-CO', {weekday:'long', year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit'});
+    }catch(e){ when = slot.start; }
+  }
+  const mode = slot && slot.mode ? slot.mode : (slot && slot.is_virtual ? 'VIRTUAL' : '—');
 
-    const now = new Date();
-
-    let min = new Date(now);
-    min.setHours(0, 0, 0, 0);
-
-    if (now.getHours() >= endHour) {
-      min.setDate(min.getDate() + 1);
-    }
-
-    min = nextEnabledDate(min, daysEnabled);
-
-    const minStr = fmtYMD(min);
-
-    fromEl.min = minStr;
-    toEl.min = minStr;
-
-    if (!fromEl.value || fromEl.value < minStr) {
-      fromEl.value = minStr;
-    }
-
-    // default "to" = +21 días
-    const dToDefault = new Date(fromEl.value + 'T00:00:00');
-    dToDefault.setDate(dToDefault.getDate() + 21);
-    const toDefaultStr = fmtYMD(dToDefault);
-
-    if (!toEl.value || toEl.value < fromEl.value) {
-      toEl.value = toDefaultStr;
-    }
-
-    toEl.min = fromEl.value;
-
-    fromEl.addEventListener('change', () => {
-      if (fromEl.value < minStr) fromEl.value = minStr;
-      toEl.min = fromEl.value;
-      if (toEl.value < fromEl.value) toEl.value = fromEl.value;
-    });
-
-    toEl.addEventListener('change', () => {
-      if (toEl.value < minStr) toEl.value = minStr;
-      if (toEl.value < fromEl.value) toEl.value = fromEl.value;
-    });
-  };
-
-  // Modal open/close helpers
-  window.MIAPP.openModal = (m) => {
-    m.setAttribute('aria-hidden', 'false');
-    document.body.classList.add('miapp-modal-open');
-  };
-
-  window.MIAPP.closeModal = (m) => {
-    m.setAttribute('aria-hidden', 'true');
-    document.body.classList.remove('miapp-modal-open');
-  };
-})();
-
-// -------------------------------
-// Root booking UI: [miapp_booking]
-// -------------------------------
-(() => {
-  const root = document.querySelector('.miapp-root');
-  if (!root) return;
-
-  const api = root.dataset.api;
-  const nonce = root.dataset.nonce;
-  const logged = root.dataset.logged === '1';
-
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-  const fmtCOP = (cents) => {
-    const cop = (cents || 0) / 100;
-    return new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: 'COP',
-      maximumFractionDigits: 0,
-    }).format(cop);
-  };
-
-  root.innerHTML = `
-    <div class="miapp-card">
-      <h3>Agenda tu cita</h3>
-
-      ${logged ? '' : `
-        <div class="miapp-warn">
-          Para agendar debes crear una cuenta o iniciar sesión.
-          <div style="margin-top:10px">
-            <a class="miapp-link" href="/mi-cuenta">Ir a Mi Cuenta</a>
-          </div>
-        </div>
-      `}
-
-      <div class="miapp-row">
-        <label>Rango:</label>
-        <input type="date" id="miapp-from" />
-        <input type="date" id="miapp-to" />
-        <button id="miapp-load">Ver disponibilidad</button>
-      </div>
-
-      <div id="miapp-services"></div>
-      <div id="miapp-slots"></div>
-      <div id="miapp-msg"></div>
-    </div>
+  box.innerHTML = `
+    <div class="miapp-summary__row"><div class="miapp-summary__label">Servicio</div><div class="miapp-summary__value">${escapeHtml(serviceName)}</div></div>
+    <div class="miapp-summary__row"><div class="miapp-summary__label">Valor</div><div class="miapp-summary__value">${escapeHtml(servicePrice)}</div></div>
+    <div class="miapp-summary__row"><div class="miapp-summary__label">Duración</div><div class="miapp-summary__value">${escapeHtml(serviceDur)}</div></div>
+    <div class="miapp-summary__row"><div class="miapp-summary__label">Fecha y hora</div><div class="miapp-summary__value">${escapeHtml(when)}</div></div>
+    <div class="miapp-summary__row"><div class="miapp-summary__label">Modalidad</div><div class="miapp-summary__value">${escapeHtml(mode)}</div></div>
+    ${service && service.indications ? `<div class="miapp-summary__row"><div class="miapp-summary__label">Indicaciones</div><div class="miapp-summary__value">${escapeHtml(service.indications)}</div></div>` : ``}
   `;
+}
 
-  const msgEl = root.querySelector('#miapp-msg');
+  async function apiGet(base, path, nonce){
+    const headers = {};
+    if(nonce){ headers['X-WP-Nonce']=nonce; }
+    const r = await fetch(base + path, { credentials: 'same-origin', headers });
+const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.error || 'Error');
+    return j;
+  }
 
-  const fromEl = root.querySelector('#miapp-from');
-  const toEl = root.querySelector('#miapp-to');
+  async function apiPost(base, path, nonce, body, method){
+    const r = await fetch(base + path, {
+      method: (method||'POST'),
+      credentials:'same-origin',
+      headers:{
+        'Content-Type':'application/json',
+        'X-WP-Nonce': nonce
+      },
+      body: JSON.stringify(body||{})
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.error || 'Error');
+    return j;
+  }
 
-  // ✅ aplica reglas dinámicas (según settings)
-  window.MIAPP.applyBookingRules(root, fromEl, toEl);
+  function setMsg(modal, text, kind){
+    const box = qs('#miapp-msg', modal);
+    if(!box) return;
+    box.className = 'miapp-msg ' + (kind ? ('miapp-msg--'+kind) : '');
+    box.textContent = text || '';
+  }
 
-  let selectedService = null;
-  let selectedSlot = null;
+  function openModal(modal){
+    modal.setAttribute('aria-hidden','false');
+    document.body.classList.add('miapp-modal-open');
+  }
+  function closeModal(modal){
+    modal.setAttribute('aria-hidden','true');
+    document.body.classList.remove('miapp-modal-open');
+  }
 
-  async function loadServices(intoEl) {
-    const r = await fetch(`${api}/services`);
-    const j = await r.json();
-    const services = j.services || [];
-
-    if (!services.length) {
-      intoEl.innerHTML = `<p class="miapp-muted">No hay servicios configurados.</p>`;
-      return;
-    }
-
-    intoEl.innerHTML = services.map(s => `
-      <div class="miapp-appt">
-        <label style="display:flex;gap:10px;align-items:flex-start">
-          <input type="radio" name="miapp_service" value="${s.id}">
-          <div>
-            <b>${s.name}</b><br>
-            <span class="miapp-muted">${s.description || ''}</span><br>
-            <span><b>${fmtCOP(s.price_cents)}</b> — ${s.duration_min} min</span>
-          </div>
-        </label>
-      </div>
-    `).join('');
-
-    intoEl.querySelectorAll('input[name="miapp_service"]').forEach(radio => {
-      radio.addEventListener('change', () => {
-        selectedService = parseInt(radio.value, 10);
-      });
+  function showStep(modal, n){
+    qsa('.miapp-step', modal).forEach(st=>{
+      const sn = parseInt(st.getAttribute('data-step'),10);
+      st.hidden = sn !== n;
     });
   }
 
-  async function loadSlots() {
-    msgEl.innerHTML = '';
-    const from = fromEl.value;
-    const to = toEl.value;
-    if (!from || !to) return;
+  function initModal(modal){
+    if(modal.dataset.miappInit === '1') return;
+    modal.dataset.miappInit = '1';
 
-    const serviceId = selectedService;
-    if (!serviceId) {
-      msgEl.innerHTML = `<div class="miapp-warn">Selecciona un servicio primero.</div>`;
-      return;
-    }
+    const apiBase = modal.getAttribute('data-api') || '';
+    const nonce = modal.getAttribute('data-nonce') || '';
+    const logged = modal.getAttribute('data-logged') === '1';
+    const dayEnd = parseInt(modal.getAttribute('data-day-end-hour') || modal.getAttribute('data-day-end') || '18', 10);
 
-    const url = `${api}/availability?service_id=${serviceId}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&tz=${encodeURIComponent(tz)}`;
-    const r = await fetch(url);
-    const j = await r.json();
+    const providersBox = qs('#miapp-providers', modal);
+    const servicesBox = qs('#miapp-services', modal);
+    let providers = [];
+    let selectedProviderId = 0;
+    const slotsBox = qs('#miapp-slots', modal);
+    const fromEl = qs('#miapp-from', modal);
+    const toEl = qs('#miapp-to', modal);
+    const loadBtn = qs('#miapp-load', modal);
 
-    const slots = j.slots || [];
-    const slotsEl = root.querySelector('#miapp-slots');
+    const calGrid = qs('#miapp-cal-grid', modal);
+    const monthLabel = qs('#miapp-month-label', modal);
+    const prevMonthBtn = qs('#miapp-prev-month', modal);
+    const nextMonthBtn = qs('#miapp-next-month', modal);
+    const toAuthBtn = qs('#miapp-to-auth', modal);
+    const confirmBtn = qs('#miapp-confirm', modal);
+    const step1NextBtn = qs('.miapp-step[data-step="1"] [data-next]', modal);
 
-    if (!slots.length) {
-      slotsEl.innerHTML = `<p class="miapp-muted">No hay horarios disponibles en ese rango.</p>`;
-      return;
-    }
-
-    slotsEl.innerHTML = slots.map(s => `
-      <div class="miapp-appt">
-        <label style="display:flex;gap:10px;align-items:center">
-          <input type="radio" name="miapp_slot" value="${s.start}">
-          <div>
-            <b>${new Date(s.start).toLocaleString()}</b>
-            <div class="miapp-muted">${s.mode || ''}</div>
-          </div>
-        </label>
-      </div>
-    `).join('');
-
-    slotsEl.querySelectorAll('input[name="miapp_slot"]').forEach(radio => {
-      radio.addEventListener('change', () => {
-        selectedSlot = radio.value;
-      });
-    });
-  }
-
-  // servicios
-  loadServices(root.querySelector('#miapp-services'));
-
-  // slots
-  root.querySelector('#miapp-load').addEventListener('click', loadSlots);
-})();
-
-// -----------------------------------
-// Modal booking: [miapp_booking_button]
-// -----------------------------------
-(() => {
-  const modals = document.querySelectorAll('.miapp-modal');
-  if (!modals.length) return;
-
-  // abrir/cerrar por delegación
-  document.addEventListener('click', (e) => {
-    const openBtn = e.target.closest('[data-miapp-open]');
-    if (openBtn) {
-      const id = openBtn.getAttribute('data-miapp-open');
-      const m = document.getElementById(id);
-      if (m) window.MIAPP.openModal(m);
-    }
-
-    const closeBtn = e.target.closest('[data-miapp-close]');
-    if (closeBtn) {
-      const m = closeBtn.closest('.miapp-modal');
-      if (m) window.MIAPP.closeModal(m);
-    }
-  });
-
-  modals.forEach(m => {
-    const api = m.dataset.api;
-    const nonce = m.dataset.nonce;
-    const logged = m.dataset.logged === '1';
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-    const servicesEl = m.querySelector('#miapp-services');
-    const slotsEl = m.querySelector('#miapp-slots');
-    const msgEl = m.querySelector('#miapp-msg');
-
-    const fromEl = m.querySelector('#miapp-from');
-    const toEl = m.querySelector('#miapp-to');
-
-    // ✅ IMPORTANTE: ahora funciona, porque applyBookingRules es global
-    window.MIAPP.applyBookingRules(m, fromEl, toEl);
-
-    let step = 1;
+    let services = [];
     let selectedService = null;
     let selectedSlot = null;
 
-    const steps = Array.from(m.querySelectorAll('.miapp-step'));
+    // fecha mínima: hoy o mañana si ya pasó la hora final
+    const now = new Date();
+    const minDate = new Date(now);
+    if(now.getHours() >= dayEnd) minDate.setDate(minDate.getDate() + 1);
+    const minIso = minDate.toISOString().slice(0,10);
 
-    const showStep = (n) => {
-      step = n;
-      steps.forEach(s => {
-        const sn = parseInt(s.dataset.step, 10);
-        s.hidden = sn !== step;
-      });
-    };
+    // Mes visible del calendario
+    let viewMonth = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+    let selectedDayIso = null;
 
-    const fmtCOP = (cents) => {
-      const cop = (cents || 0) / 100;
-      return new Intl.NumberFormat('es-CO', {
-        style: 'currency',
-        currency: 'COP',
-        maximumFractionDigits: 0,
-      }).format(cop);
-    };
+    
+function renderServices(){
+  if(!servicesBox) return;
+  servicesBox.innerHTML = '';
 
-    async function loadServices() {
-      msgEl.innerHTML = '';
-      servicesEl.innerHTML = `<p class="miapp-muted">Cargando servicios…</p>`;
+  // For reschedule: force preselect service
+  const forceServiceId = parseInt((modal && modal.dataset && modal.dataset.forceServiceId) ? modal.dataset.forceServiceId : '0', 10) || 0;
+  if(forceServiceId && (!selectedService || selectedService.id !== forceServiceId)){
+    const found = services.find(x=> parseInt(x.id,10)===forceServiceId);
+    if(found) selectedService = found;
+  }
 
-      const r = await fetch(`${api}/services`);
-      const j = await r.json();
-      const services = j.services || [];
+  if(!services.length){
+    servicesBox.innerHTML = '<div class="miapp-muted">No hay servicios publicados aún.</div>';
+    if(step1NextBtn) step1NextBtn.disabled = true;
+    return;
+  }
 
-      if (!services.length) {
-        servicesEl.innerHTML = `<p class="miapp-muted">No hay servicios configurados.</p>`;
-        return;
-      }
+  const wrap = document.createElement('div');
+  wrap.className = 'miapp-services';
 
-      servicesEl.innerHTML = services.map(s => `
-        <div class="miapp-appt">
-          <label style="display:flex;gap:10px;align-items:flex-start">
-            <input type="radio" name="miapp_service_modal" value="${s.id}">
-            <div>
-              <b>${s.name}</b><br>
-              <span class="miapp-muted">${s.description || ''}</span><br>
-              <span><b>${fmtCOP(s.price_cents)}</b> — ${s.duration_min} min</span>
-            </div>
-          </label>
-        </div>
-      `).join('');
+  services.forEach(s=>{
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'miapp-service' + (selectedService && selectedService.id === s.id ? ' is-selected' : '');
 
-      servicesEl.querySelectorAll('input[name="miapp_service_modal"]').forEach(radio => {
-        radio.addEventListener('change', () => {
-          selectedService = parseInt(radio.value, 10);
-          const btn = m.querySelector('[data-next]');
-          if (btn) btn.disabled = false;
-        });
-      });
-
-      const btn = m.querySelector('[data-next]');
-      if (btn) btn.disabled = true;
-    }
-
-    async function loadSlots() {
-      msgEl.innerHTML = '';
-      slotsEl.innerHTML = '';
-
-      if (!selectedService) {
-        msgEl.innerHTML = `<div class="miapp-warn">Selecciona un servicio.</div>`;
-        return;
-      }
-
-      const from = fromEl.value;
-      const to = toEl.value;
-
-      const url = `${api}/availability?service_id=${selectedService}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&tz=${encodeURIComponent(tz)}`;
-      const r = await fetch(url);
-      const j = await r.json();
-
-      const slots = j.slots || [];
-      if (!slots.length) {
-        slotsEl.innerHTML = `<p class="miapp-muted">No hay horarios disponibles en ese rango.</p>`;
-        return;
-      }
-
-      slotsEl.innerHTML = slots.map(s => `
-        <div class="miapp-appt">
-          <label style="display:flex;gap:10px;align-items:center">
-            <input type="radio" name="miapp_slot_modal" value="${s.start}">
-            <div>
-              <b>${new Date(s.start).toLocaleString()}</b>
-              <div class="miapp-muted">${s.mode || ''}</div>
-            </div>
-          </label>
-        </div>
-      `).join('');
-
-      const btnNext = m.querySelector('#miapp-to-auth');
-      if (btnNext) btnNext.disabled = true;
-
-      slotsEl.querySelectorAll('input[name="miapp_slot_modal"]').forEach(radio => {
-        radio.addEventListener('change', () => {
-          selectedSlot = radio.value;
-          if (btnNext) btnNext.disabled = false;
-        });
-      });
-    }
-
-    // Navegación (next/back)
-    m.querySelectorAll('[data-next]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        if (step === 1) {
-          if (!selectedService) {
-            msgEl.innerHTML = `<div class="miapp-warn">Selecciona un servicio.</div>`;
-            return;
-          }
-          showStep(2);
-        } else if (step === 2) {
-          if (!selectedSlot) {
-            msgEl.innerHTML = `<div class="miapp-warn">Selecciona un horario.</div>`;
-            return;
-          }
-          showStep(3);
-        }
-      });
-    });
-
-    m.querySelectorAll('[data-back]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (step > 1) showStep(step - 1);
-      });
-    });
-
-    // Cargar disponibilidad
-    const loadBtn = m.querySelector('#miapp-load');
-    if (loadBtn) loadBtn.addEventListener('click', loadSlots);
-
-    // Confirmar (book o reschedule)
-    const confirmBtn = m.querySelector('#miapp-confirm');
-    if (confirmBtn) {
-      confirmBtn.addEventListener('click', async () => {
-        msgEl.innerHTML = '';
-
-        if (!selectedService || !selectedSlot) {
-          msgEl.innerHTML = `<div class="miapp-warn">Faltan datos: servicio u horario.</div>`;
-          return;
-        }
-
-        if (!logged) {
-          msgEl.innerHTML = `<div class="miapp-warn">Debes iniciar sesión para confirmar.</div>`;
-          return;
-        }
-
-        // slot start viene en ISO. El backend ya calcula end según duración (según tu implementación),
-        // pero si tu API requiere end, aquí podrías enviarlo.
-        const start = selectedSlot;
-
-        const resId = window.__MIAPP_RESCHEDULE_ID__;
-        const endpoint = resId ? `${api}/me/appointments/${resId}/reschedule` : `${api}/book`;
-
-        const payload = resId
-          ? { start, tz }
-          : { service_id: selectedService, start, tz };
-
-        const r = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-WP-Nonce': nonce
-          },
-          body: JSON.stringify(payload)
-        });
-
-        const j = await r.json();
-        if (!r.ok) {
-          msgEl.innerHTML = `<div class="miapp-warn">${j.error || 'No se pudo confirmar.'}</div>`;
-          return;
-        }
-
-        window.__MIAPP_RESCHEDULE_ID__ = null;
-        showStep(4);
-      });
-    }
-
-    // Auto-open if requested
-    if (m.dataset.openOnLoad === '1') {
-      window.MIAPP.openModal(m);
-    }
-
-    // init
-    showStep(1);
-    loadServices();
-  });
-})();
-
-// -------------------------------
-// Patient panel: [miapp_patient]
-// -------------------------------
-(() => {
-  const el = document.querySelector('.miapp-patient');
-  if (!el) return;
-
-  const api = el.dataset.api;
-  const nonce = el.dataset.nonce;
-
-  const fmtCOP = (cents) => {
-    const cop = (cents || 0) / 100;
-    return new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: 'COP',
-      maximumFractionDigits: 0,
-    }).format(cop);
-  };
-
-  async function refresh() {
-    el.innerHTML = `<div class="miapp-card"><h3>Mis citas</h3><p class="miapp-muted">Cargando…</p></div>`;
-
-    const r = await fetch(`${api}/my-appointments`, {
-      headers: { 'X-WP-Nonce': nonce }
-    });
-    const j = await r.json();
-
-    if (!r.ok) {
-      el.innerHTML = `<div class="miapp-card"><h3>Mis citas</h3><div class="miapp-warn">${j.error || 'No se pudo cargar.'}</div></div>`;
-      return;
-    }
-
-    const appts = j.appointments || [];
-
-    el.innerHTML = `
-      <div class="miapp-card">
-        <h3>Mis citas</h3>
-        ${appts.length ? appts.map(x => {
-          const d = new Date(x.start_at + 'Z'); // guardado UTC
-          return `
-            <div class="miapp-appt" data-appt-id="${x.id}">
-              <div><b>${x.service_name}</b> — ${fmtCOP(x.service_price_cents)} ${x.session_number ? `(Sesión #${x.session_number})` : ''}</div>
-              <div class="miapp-muted">${d.toLocaleString()}</div>
-              ${x.meet ? `<div><a class="miapp-link" href="${x.meet}" target="_blank" rel="noopener">Entrar a la sesión</a></div>` : ''}
-              <div class="miapp-muted">Estado: ${x.status}</div>
-              <div class="miapp-actions">
-                <button class="miapp-btn miapp-btn--outline" data-miapp-cancel>Cancelar</button>
-                <button class="miapp-btn miapp-btn--primary" data-miapp-reschedule>Reagendar</button>
-              </div>
-            </div>
-          `;
-        }).join('') : `<p class="miapp-muted">Aún no tienes citas.</p>`}
-        <div id="miapp-msg"></div>
+    const desc = (s.description || '').trim();
+    card.innerHTML = `
+      <div class="miapp-service__left">
+        <div class="miapp-service__name">${escapeHtml(s.name)}</div>
+        ${desc ? `<div class="miapp-service__desc">${escapeHtml(desc)}</div>` : ``}
+      </div>
+      <div class="miapp-service__meta">
+        ${fmtMoneyCOP(s.price_cents)}
+        <span class="miapp-service__dur">${parseInt(s.duration_min||60,10)} min</span>
       </div>
     `;
 
-    // Cancel
-    el.querySelectorAll('[data-miapp-cancel]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const card = btn.closest('[data-appt-id]');
-        const id = card.getAttribute('data-appt-id');
-
-        if (!confirm('¿Seguro que quieres cancelar esta cita?')) return;
-
-        const rr = await fetch(`${api}/me/appointments/${id}/cancel`, {
-          method: 'POST',
-          headers: { 'X-WP-Nonce': nonce }
-        });
-        const jj = await rr.json();
-
-        if (!rr.ok) {
-          alert(jj.error || 'No se pudo cancelar.');
-          return;
-        }
-        refresh();
-      });
+    card.addEventListener('click', ()=>{
+      selectedService = s;
+      selectedSlot = null;
+      if(step1NextBtn) step1NextBtn.disabled = false;
+      if(toAuthBtn) toAuthBtn.disabled = true;
+      if(slotsBox) slotsBox.innerHTML = '';
+      setMsg(modal,'','');
+      renderServices();
     });
 
-    // Reschedule
-    el.querySelectorAll('[data-miapp-reschedule]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const card = btn.closest('[data-appt-id]');
-        const id = card.getAttribute('data-appt-id');
+    wrap.appendChild(card);
+  });
 
-        window.__MIAPP_RESCHEDULE_ID__ = id;
+  servicesBox.appendChild(wrap);
+  if(step1NextBtn) step1NextBtn.disabled = !selectedService;
+}
 
-        // Requiere que en esta misma página exista un modal de booking
-        // (agrega [miapp_booking_button] en la página del panel)
-        const modal = document.querySelector('.miapp-modal');
-        if (!modal) {
-          alert('No encontré el modal de agendamiento en esta página. Agrega el shortcode [miapp_booking_button].');
+
+    async function loadProviders(){
+      if(!providersBox){
+        // if modal template doesn't include providers box, keep provider 0
+        return;
+      }
+      try{
+        const j = await apiGet(apiBase, '/providers');
+        providers = j.providers || [];
+        providersBox.innerHTML = '';
+        if(!providers.length){
+          providersBox.innerHTML = '<div class="miapp-muted">No hay profesionales activos.</div>';
           return;
         }
-        window.MIAPP.openModal(modal);
+        // auto-select if only one
+        if(providers.length === 1){
+          selectedProviderId = parseInt(providers[0].id,10) || 0;
+        }
+        const wrap = document.createElement('div');
+        wrap.className = 'miapp-list';
+        providers.forEach(p=>{
+          const item = document.createElement('button');
+          item.type='button';
+          item.className='miapp-list__item';
+          item.setAttribute('data-provider', String(p.id));
+          item.innerHTML = `<div><strong>${escapeHtml(p.name||'Profesional')}</strong>${p.specialty?`<div class="miapp-muted">${escapeHtml(p.specialty)}</div>`:''}</div>`;
+          if(String(p.id)===String(selectedProviderId)) item.classList.add('is-selected');
+          item.addEventListener('click', ()=>{
+            selectedProviderId = parseInt(p.id,10)||0;
+            qsa('.miapp-list__item', wrap).forEach(b=>b.classList.remove('is-selected'));
+            item.classList.add('is-selected');
+            // reload services when provider changes
+            loadServices();
+          });
+          wrap.appendChild(item);
+        });
+        providersBox.appendChild(wrap);
+      }catch(e){
+        providersBox.innerHTML = '<div class="miapp-muted">No pude cargar profesionales.</div>';
+      }
+    }
+
+async function loadServices(){
+      try{
+        setMsg(modal,'Cargando servicios…','info');
+        const q = selectedProviderId ? ('?provider_id=' + encodeURIComponent(String(selectedProviderId))) : '';
+        const j = await apiGet(apiBase, '/services' + q);
+        services = j.services || [];
+        setMsg(modal,'','');
+        renderServices();
+      }catch(e){
+        setMsg(modal, e.message || 'No pude cargar los servicios', 'error');
+      }
+    }
+
+    function renderSlots(slots){
+      if(!slotsBox) return;
+      slotsBox.innerHTML = '';
+      if(!slots || !slots.length){
+        slotsBox.innerHTML = '<div class="miapp-muted">No hay cupos en este día.</div>';
+        return;
+      }
+
+      const list = document.createElement('div');
+      list.className = 'miapp-slot-list';
+
+      slots.forEach(s=>{
+        const item = document.createElement('div');
+        item.className = 'miapp-slot-item' + (selectedSlot && selectedSlot.start === s.start ? ' is-active' : '');
+        const d = new Date(s.start);
+        item.innerHTML = `
+          <div class="miapp-slot-item__time">${d.toLocaleString('es-CO',{hour:'2-digit',minute:'2-digit'})}</div>
+          <div class="miapp-slot-item__meta">${d.toLocaleDateString('es-CO',{weekday:'long', year:'numeric', month:'short', day:'numeric'})}</div>
+        `;
+        item.addEventListener('click', ()=>{
+          selectedSlot = s;
+          toAuthBtn && (toAuthBtn.disabled = false);
+          renderSlots(slots);
+        });
+        list.appendChild(item);
+      });
+
+      slotsBox.appendChild(list);
+    }
+
+    async function loadAvailability(){
+      if(!selectedService){ setMsg(modal,'Elige un servicio primero.', 'error'); return; }
+
+      const from = fromEl ? fromEl.value : '';
+      const to = toEl ? toEl.value : '';
+      if(!from || !to){ setMsg(modal,'Selecciona un día.', 'error'); return; }
+
+      const fromIso = from + 'T00:00:00';
+      const toIso = to + 'T23:59:59';
+
+      try{
+        setMsg(modal,'Buscando disponibilidad…','info');
+        const j = await apiGet(apiBase, `/availability?serviceId=${encodeURIComponent(selectedService.id)}&provider_id=${encodeURIComponent(String(selectedProviderId||''))}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`);
+        setMsg(modal,'','');
+        const slots = j.slots || [];
+        selectedSlot = null;
+        toAuthBtn && (toAuthBtn.disabled = true);
+        renderSlots(slots);
+      }catch(e){
+        setMsg(modal, e.message || 'No pude cargar la disponibilidad', 'error');
+      }
+    }
+
+    function monthKey(d){
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      return `${y}-${m}`;
+    }
+
+    function monthLabelEs(d){
+      try{
+        return d.toLocaleDateString('es-CO', {month:'long', year:'numeric'});
+      }catch(e){
+        return monthKey(d);
+      }
+    }
+
+    function startOfCalendarGrid(monthDate){
+      // Lunes como inicio
+      const first = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+      const dow = (first.getDay() + 6) % 7; // 0=Lunes
+      const start = new Date(first);
+      start.setDate(first.getDate() - dow);
+      return start;
+    }
+
+    async function loadMonthDays(){
+      if(!selectedService) return;
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const m = monthKey(viewMonth);
+      const j = await apiGet(apiBase, `/availability/days?serviceId=${encodeURIComponent(selectedService.id)}&provider_id=${encodeURIComponent(String(selectedProviderId||''))}&month=${encodeURIComponent(m)}&tz=${encodeURIComponent(tz)}`);
+      const map = {};
+      (j.days || []).forEach(d=>{ map[d.date] = d; });
+      return map;
+    }
+
+    function renderCalendar(daysMap){
+      if(!calGrid) return;
+      calGrid.innerHTML = '';
+      if(monthLabel) monthLabel.textContent = monthLabelEs(viewMonth);
+
+      const gridStart = startOfCalendarGrid(viewMonth);
+      const todayMonth = viewMonth.getMonth();
+      for(let i=0;i<42;i++){
+        const d = new Date(gridStart);
+        d.setDate(gridStart.getDate() + i);
+        const iso = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+
+        const info = daysMap && daysMap[iso] ? daysMap[iso] : null;
+        const inMonth = d.getMonth() === todayMonth;
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'miapp-day';
+
+        if(!inMonth){
+          btn.classList.add('miapp-day--disabled');
+          btn.disabled = true;
+        }
+
+        // bloquear pasado / antes del min
+        if(iso < minIso){
+          btn.classList.add('miapp-day--disabled');
+          btn.disabled = true;
+        }
+
+        // reglas por días habilitados
+        if(info && info.enabled === false){
+          btn.classList.add('miapp-day--disabled');
+          btn.disabled = true;
+        }
+
+        // color por remaining
+        let dotClass = 'miapp-dot--none';
+        let meta = 'Sin cupos';
+        if(info && info.enabled !== false){
+          const rem = parseInt(info.remaining||0,10);
+          const total = parseInt(info.total||0,10);
+          if(rem <= 0){ dotClass = 'miapp-dot--none'; meta = 'Sin cupos'; }
+          else if(rem <= 2){ dotClass = 'miapp-dot--low'; meta = `${rem}/${total}`; }
+          else { dotClass = 'miapp-dot--good'; meta = `${rem}/${total}`; }
+          if(rem <= 0) btn.disabled = true;
+        } else {
+          // sin info: lo tratamos como sin cupos
+          btn.disabled = true;
+          btn.classList.add('miapp-day--disabled');
+        }
+
+        if(selectedDayIso === iso) btn.classList.add('miapp-day--selected');
+
+        btn.innerHTML = `
+          <div class="miapp-day__num">${d.getDate()}</div>
+          <div class="miapp-day__meta"><i class="miapp-dot ${dotClass}"></i><span>${meta}</span></div>
+        `;
+
+        btn.addEventListener('click', async ()=>{
+          if(btn.disabled) return;
+          selectedDayIso = iso;
+          // set hidden inputs
+          if(fromEl) fromEl.value = iso;
+          if(toEl) toEl.value = iso;
+          // UI
+          qsa('.miapp-day', calGrid).forEach(x=>x.classList.remove('miapp-day--selected'));
+          btn.classList.add('miapp-day--selected');
+          await loadAvailability();
+        });
+
+        calGrid.appendChild(btn);
+      }
+    }
+
+    async function refreshCalendar(){
+      if(!selectedService){
+        renderCalendar({});
+        return;
+      }
+      try{
+        setMsg(modal,'Cargando calendario…','info');
+        const daysMap = await loadMonthDays();
+        setMsg(modal,'','');
+        renderCalendar(daysMap || {});
+      }catch(e){
+        setMsg(modal, e.message || 'No pude cargar el calendario', 'error');
+        renderCalendar({});
+      }
+    }
+
+    async function confirmBooking(){
+      if(!logged){
+        setMsg(modal,'Debes iniciar sesión para confirmar.','error');
+        return;
+      }
+      if(!selectedService || !selectedSlot){
+        setMsg(modal,'Elige servicio y horario.','error');
+        return;
+      }
+      try{
+        confirmBtn && (confirmBtn.disabled = true);
+        setMsg(modal,'Confirmando…','info');
+        await apiPost(apiBase, '/book', nonce, {
+          serviceId: selectedService.id,
+          provider_id: selectedProviderId,
+          start: selectedSlot.start,
+          end: selectedSlot.end,
+          tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+          mode: 'VIRTUAL'
+        });
+        setMsg(modal,'','');
+        showStep(modal, 4);
+      }catch(e){
+        setMsg(modal, e.message || 'No pude confirmar', 'error');
+      }finally{
+        confirmBtn && (confirmBtn.disabled = !logged);
+      }
+    }
+
+    // open/close bindings
+    qsa('[data-miapp-close]', modal).forEach(el=>el.addEventListener('click', ()=>closeModal(modal)));
+
+    // step navigation
+    qsa('[data-next]', modal).forEach(btn=>btn.addEventListener('click', ()=>{
+      const current = qsa('.miapp-step', modal).find(st=>!st.hidden);
+      const curN = current ? parseInt(current.getAttribute('data-step'),10) : 1;
+      if(curN === 1){
+        if(!selectedService){ setMsg(modal,'Selecciona un servicio.','error'); return; }
+        showStep(modal, 2);
+        refreshCalendar();
+        return;
+      }
+      if(curN === 2){
+        if(!selectedSlot){ setMsg(modal,'Selecciona un horario.','error'); return; }
+        showStep(modal, 3);
+        renderSummary(modal, selectedService, selectedSlot);
+        confirmBtn && (confirmBtn.disabled = !logged);
+        if(!logged){
+          // muestra login/registro (simple)
+          const auth = qs('#miapp-auth', modal);
+          const tpl = qs('#miapp-login-template', modal);
+          if(auth && tpl) auth.innerHTML = tpl.innerHTML;
+        }
+        return;
+      }
+    }));
+
+    qsa('[data-back]', modal).forEach(btn=>btn.addEventListener('click', ()=>{
+      const current = qsa('.miapp-step', modal).find(st=>!st.hidden);
+      const curN = current ? parseInt(current.getAttribute('data-step'),10) : 1;
+      if(curN === 2) showStep(modal, 1);
+      if(curN === 3) showStep(modal, 2);
+    }));
+
+    if(loadBtn) loadBtn.addEventListener('click', loadAvailability);
+    if(confirmBtn) confirmBtn.addEventListener('click', confirmBooking);
+
+    if(prevMonthBtn) prevMonthBtn.addEventListener('click', ()=>{
+      viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth()-1, 1);
+      refreshCalendar();
+    });
+    if(nextMonthBtn) nextMonthBtn.addEventListener('click', ()=>{
+      viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth()+1, 1);
+      refreshCalendar();
+    });
+
+    // initial
+    showStep(modal, 1);
+    loadProviders().then(()=>loadServices());
+
+    const openOnLoad = modal.getAttribute('data-open-on-load') === '1';
+    if(openOnLoad) openModal(modal);
+  }
+
+  function escapeHtml(str){
+    return String(str||'').replace(/[&<>"]/g, s=>({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'
+    }[s]));
+  }
+
+
+  // ===== Dashboards (Paciente y Mia) =====
+  function isoDateLocalFromUtc(utcStr){
+    // utcStr: 'YYYY-mm-dd HH:MM:SS' in UTC
+    const d = new Date(utcStr.replace(' ', 'T') + 'Z');
+    return d.toISOString().slice(0,10);
+  }
+
+  function renderMiniCalendar(root, viewMonth, dayInfoMap, minIso, onSelectDay){
+    const grid = qs('.miapp-mini-cal__grid', root);
+    const label = qs('.miapp-mini-cal__label', root);
+    if(!grid) return;
+    grid.innerHTML = '';
+    if(label){
+      try{ label.textContent = viewMonth.toLocaleDateString('es-CO',{month:'long',year:'numeric'}); }
+      catch(e){ label.textContent = viewMonth.getFullYear()+'-'+String(viewMonth.getMonth()+1).padStart(2,'0'); }
+    }
+
+    // start monday grid
+    const first = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
+    const dow = (first.getDay()+6)%7;
+    const start = new Date(first); start.setDate(first.getDate()-dow);
+
+    const monthIdx = viewMonth.getMonth();
+
+    for(let i=0;i<42;i++){
+      const d = new Date(start); d.setDate(start.getDate()+i);
+      const iso = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      const inMonth = d.getMonth()===monthIdx;
+
+      const info = dayInfoMap[iso] || {count:0};
+      let dotClass = 'miapp-dot--none';
+      if(info.count>=3) dotClass='miapp-dot--good';
+      else if(info.count>=1) dotClass='miapp-dot--low';
+
+      const btn = document.createElement('button');
+      btn.type='button';
+      btn.className='miapp-day';
+      if(info.count>=1) btn.classList.add('miapp-day--has-appt');
+      if(!inMonth || iso < minIso){
+        btn.classList.add('miapp-day--disabled');
+        btn.disabled=true;
+      }
+      btn.innerHTML = `<div class="miapp-day__num">${d.getDate()}</div>
+        <div class="miapp-day__meta"><i class="miapp-dot ${dotClass}"></i><span>${info.count||0}</span></div>`;
+      btn.addEventListener('click', ()=>{ if(btn.disabled) return; onSelectDay(iso); });
+      grid.appendChild(btn);
+    }
+  }
+
+  function ensureDashboardShell(root, title){
+    if(root.dataset.miappDash === '1') return;
+    root.dataset.miappDash = '1';
+    root.innerHTML = `
+      <div class="miapp-card">
+        <div class="miapp-dash-header">
+          <h3>${escapeHtml(title)}</h3>
+        </div>
+
+        <div class="miapp-kpis" hidden></div>
+
+        <div class="miapp-dash-tabs" hidden>
+          <button type="button" class="miapp-tab miapp-tab--active" data-tab="agenda">Agenda</button>
+          <button type="button" class="miapp-tab" data-tab="services">Servicios</button>
+        </div>
+
+        <div class="miapp-dash-grid" data-pane="agenda">
+          <div class="miapp-mini-cal">
+            <div class="miapp-mini-cal__header">
+              <button type="button" class="miapp-mini-cal__prev">‹</button>
+              <div class="miapp-mini-cal__label"></div>
+              <button type="button" class="miapp-mini-cal__next">›</button>
+            </div>
+            <div class="miapp-mini-cal__week"><div>L</div><div>M</div><div>X</div><div>J</div><div>V</div><div>S</div><div>D</div></div>
+            <div class="miapp-mini-cal__grid"></div>
+            <div class="miapp-muted miapp-mini-cal__legend">● verde = 3+ citas · ● amarillo = 1-2 · ● rojo = 0</div>
+          </div>
+          <div class="miapp-dash-main">
+            <div class="miapp-day-title"></div>
+            <div class="miapp-day-list"></div>
+          </div>
+        </div>
+
+        <div class="miapp-dash-pane" data-pane="services" hidden>
+          <div class="miapp-services-panel">
+            <div class="miapp-services-panel__header">
+              <h4>Mis servicios</h4>
+              <button type="button" class="miapp-btn miapp-btn--primary" data-miapp-add-service>Nuevo servicio</button>
+            </div>
+            <div class="miapp-services-panel__list"></div>
+          </div>
+        </div>
+
+      </div>
+    `;
+  }
+
+  async function initPatientDashboard(root){
+    ensureDashboardShell(root, 'Tus citas');
+    const apiBase = root.getAttribute('data-api') || '';
+    const nonce = root.getAttribute('data-nonce') || '';
+    async function refreshServices(){
+      const list = root.querySelector('.miapp-services-panel__list');
+      if(!list) return;
+      // Only load when pane is visible or when requested
+      const j = await apiGet(apiBase, '/practitioner/services', nonce);
+      const services = (j.services||[]);
+      if(!services.length){
+        list.innerHTML = '<div class="miapp-muted">Aún no tienes servicios. Crea uno para habilitar el agendamiento.</div>';
+      }else{
+        list.innerHTML = '';
+        services.forEach(s=>{
+          const row = document.createElement('div');
+          row.className = 'miapp-service-row';
+          row.innerHTML = `
+            <div class="miapp-service-row__main">
+              <strong>${escapeHtml(s.name||'Servicio')}</strong>
+              <div class="miapp-muted">${fmtMoneyCOP(s.price_cents)} · ${escapeHtml(String(s.duration_min||60))} min · buffer ${escapeHtml(String(s.buffer_min||0))} min</div>
+            </div>
+            <div class="miapp-service-row__actions">
+              <button type="button" class="miapp-btn miapp-btn--outline" data-edit="${s.id}">Editar</button>
+              <button type="button" class="miapp-btn miapp-btn--outline" data-del="${s.id}">Desactivar</button>
+            </div>
+          `;
+          list.appendChild(row);
+        });
+      }
+
+      // handlers
+      qsa('[data-edit]', list).forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const id = btn.getAttribute('data-edit');
+          const svc = (j.services||[]).find(x=>String(x.id)===String(id));
+          if(!svc) return;
+          const name = prompt('Nombre del servicio', svc.name||'');
+          if(name===null) return;
+          const price = prompt('Precio COP (solo número)', String(Math.round((svc.price_cents||0)/100)));
+          if(price===null) return;
+          const dur = prompt('Duración (min)', String(svc.duration_min||60));
+          if(dur===null) return;
+          const buf = prompt('Buffer (min)', String(svc.buffer_min||0));
+          if(buf===null) return;
+          const modes = prompt('Modalidades (VIRTUAL,PRESENTIAL)', (svc.modes||[]).join(',') || 'VIRTUAL,PRESENTIAL');
+          if(modes===null) return;
+          const indications = prompt('Indicaciones (se verán en el resumen)', svc.indications||'') ?? svc.indications;
+          const payload = {name, price_cop: parseInt(price,10)||0, duration_min: parseInt(dur,10)||60, buffer_min: parseInt(buf,10)||0, modes, indications};
+          await apiPost(apiBase, `/practitioner/services/${encodeURIComponent(id)}`, nonce, payload, 'PUT');
+          await refreshServices();
+        });
+      });
+      qsa('[data-del]', list).forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const id = btn.getAttribute('data-del');
+          if(!confirm('¿Desactivar este servicio?')) return;
+          await apiPost(apiBase, `/practitioner/services/${encodeURIComponent(id)}`, nonce, {}, 'DELETE');
+          await refreshServices();
+        });
+      });
+    }
+
+    // Add new service
+    const addBtn = root.querySelector('[data-miapp-add-service]');
+    if(addBtn){
+      addBtn.addEventListener('click', async ()=>{
+        const name = prompt('Nombre del servicio');
+        if(!name) return;
+        const price = prompt('Precio COP (solo número)','0');
+        if(price===null) return;
+        const dur = prompt('Duración (min)','60');
+        if(dur===null) return;
+        const buf = prompt('Buffer (min)','10');
+        if(buf===null) return;
+        const modes = prompt('Modalidades (VIRTUAL,PRESENTIAL)','VIRTUAL,PRESENTIAL');
+        if(modes===null) return;
+        const indications = prompt('Indicaciones (se verán en el resumen)','') || '';
+        const payload = {name, price_cop: parseInt(price,10)||0, duration_min: parseInt(dur,10)||60, buffer_min: parseInt(buf,10)||0, modes, indications};
+        await apiPost(apiBase, '/practitioner/services', nonce, payload, 'POST');
+        await refreshServices();
+      });
+    }
+
+
+    let viewMonth = new Date(); viewMonth.setDate(1);
+    const now = new Date(); const minIso = now.toISOString().slice(0,10);
+
+    const listBox = qs('.miapp-day-list', root);
+    const dayTitle = qs('.miapp-day-title', root);
+
+    async function loadAll(){
+      const j = await apiGet(apiBase, '/me/appointments', nonce);
+      return j.appointments || [];
+    }
+
+    function buildDayMap(appts){
+      const map = {};
+      appts.forEach(a=>{
+        const day = isoDateLocalFromUtc(a.start_at);
+        map[day] = map[day] || {count:0, items:[]};
+        map[day].count += 1;
+        map[day].items.push(a);
+      });
+      return map;
+    }
+
+    function renderDay(apptsDay, dayIso){
+      if(dayTitle) dayTitle.textContent = dayIso;
+      if(!listBox) return;
+      listBox.innerHTML = '';
+      const items = (apptsDay && apptsDay.items) ? apptsDay.items : [];
+      if(!items.length){
+        listBox.innerHTML = '<div class="miapp-muted">No tienes citas ese día.</div>';
+        return;
+      }
+      items.sort((a,b)=> (a.start_at>b.start_at?1:-1));
+      items.forEach(a=>{
+        const d = new Date(a.start_at.replace(' ','T')+'Z');
+        const row = document.createElement('div');
+        row.className = 'miapp-appt';
+        row.innerHTML = `
+          <div class="miapp-appt__top">
+            <strong>${d.toLocaleString('es-CO',{hour:'2-digit',minute:'2-digit'})}</strong>
+            <span class="miapp-badge">${escapeHtml(a.status||'')}</span>
+          </div>
+          <div class="miapp-appt__meta">${escapeHtml(a.service_name||('Servicio #' + a.service_id))}</div>
+          <div class="miapp-appt__actions">
+            <button type="button" class="miapp-btn miapp-btn--outline" data-cancel="${a.id}">Cancelar</button>
+          </div>
+        `;
+        listBox.appendChild(row);
+      });
+
+      
+      // reagendar
+      qsa('[data-reschedule]', listBox).forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const id = btn.getAttribute('data-reschedule');
+          const serviceId = parseInt(btn.getAttribute('data-service')||'0',10) || 0;
+          window.MIAPP_RESCHEDULE = {id, serviceId};
+          // abrir modal de reagendamiento
+          const modal = document.getElementById('miapp-reschedule-modal');
+          if(modal){
+            // preseleccionar servicio si existe
+            try{
+              modal.dataset.forceServiceId = String(serviceId||'');
+            }catch(e){}
+            window.MIAPP.openModal(modal);
+          }else{
+            alert('No se encontró el modal de reagendamiento.');
+          }
+        });
+      });
+
+// cancelar
+      qsa('[data-cancel]', listBox).forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const id = btn.getAttribute('data-cancel');
+          try{
+            btn.disabled = true;
+            await apiPost(apiBase, `/me/appointments/${encodeURIComponent(id)}/cancel`, nonce, {});
+            // recarga
+            await refresh();
+          }catch(e){
+            alert(e.message||'No pude cancelar');
+          }finally{
+            btn.disabled = false;
+          }
+        });
+      });
+    }
+
+    let apptsCache = [];
+    let dayMap = {};
+
+    async function refresh(){
+      apptsCache = await loadAll();
+      dayMap = buildDayMap(apptsCache);
+      renderMiniCalendar(root, viewMonth, dayMap, minIso, (dayIso)=>{
+        renderDay(dayMap[dayIso], dayIso);
+      });
+      // default: hoy
+      renderDay(dayMap[minIso], minIso);
+    }
+
+    // month nav
+    qs('.miapp-mini-cal__prev', root).addEventListener('click', ()=>{ viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth()-1, 1); refresh(); });
+    qs('.miapp-mini-cal__next', root).addEventListener('click', ()=>{ viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth()+1, 1); refresh(); });
+
+    await refresh();
+  }
+
+  async function initMiaDashboard(root){
+    ensureDashboardShell(root, 'Panel profesional');
+    const apiBase = root.getAttribute('data-api') || '';
+    const nonce = root.getAttribute('data-nonce') || '';
+    const kpiBox = root.querySelector('.miapp-kpis');
+    if(kpiBox){ kpiBox.hidden = false; }
+
+    const tabs = root.querySelector('.miapp-dash-tabs');
+    const paneAgenda = root.querySelector('[data-pane="agenda"]');
+    const paneServices = root.querySelector('[data-pane="services"]');
+    if(tabs && paneAgenda && paneServices){
+      tabs.hidden = false;
+      tabs.querySelectorAll('.miapp-tab').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const tab = btn.getAttribute('data-tab');
+          tabs.querySelectorAll('.miapp-tab').forEach(b=>b.classList.remove('miapp-tab--active'));
+          btn.classList.add('miapp-tab--active');
+          if(tab==='services'){
+            paneAgenda.hidden = true;
+            paneServices.hidden = false;
+            refreshServices();
+          }else{
+            paneAgenda.hidden = false;
+            paneServices.hidden = true;
+          }
+        });
+      });
+    }
+
+    async function refreshKpis(){
+      if(!kpiBox) return;
+      const k = await apiGet(apiBase, '/practitioner/kpis', nonce);
+      kpiBox.innerHTML = `
+        <div class="miapp-kpi"><div class="miapp-kpi__num">${k.scheduled_today||0}</div><div class="miapp-kpi__label">Programadas hoy</div></div>
+        <div class="miapp-kpi"><div class="miapp-kpi__num">${k.confirmed_today||0}</div><div class="miapp-kpi__label">Confirmadas hoy</div></div>
+        <div class="miapp-kpi"><div class="miapp-kpi__num">${k.paid_today||0}</div><div class="miapp-kpi__label">Pagadas hoy</div></div>
+        <div class="miapp-kpi"><div class="miapp-kpi__num">${k.closed_today||0}</div><div class="miapp-kpi__label">Cerradas hoy</div></div>
+        <div class="miapp-kpi"><div class="miapp-kpi__num">${k.pending_month||0}</div><div class="miapp-kpi__label">Pendientes mes</div></div>
+      `;
+    }
+
+    async function refreshServices(){
+      const list = root.querySelector('.miapp-services-panel__list');
+      if(!list) return;
+      // Only load when pane is visible or when requested
+      const j = await apiGet(apiBase, '/practitioner/services', nonce);
+      const services = (j.services||[]);
+      if(!services.length){
+        list.innerHTML = '<div class="miapp-muted">Aún no tienes servicios. Crea uno para habilitar el agendamiento.</div>';
+      }else{
+        list.innerHTML = '';
+        services.forEach(s=>{
+          const row = document.createElement('div');
+          row.className = 'miapp-service-row';
+          row.innerHTML = `
+            <div class="miapp-service-row__main">
+              <strong>${escapeHtml(s.name||'Servicio')}</strong>
+              <div class="miapp-muted">${fmtMoneyCOP(s.price_cents)} · ${escapeHtml(String(s.duration_min||60))} min · buffer ${escapeHtml(String(s.buffer_min||0))} min</div>
+            </div>
+            <div class="miapp-service-row__actions">
+              <button type="button" class="miapp-btn miapp-btn--outline" data-edit="${s.id}">Editar</button>
+              <button type="button" class="miapp-btn miapp-btn--outline" data-del="${s.id}">Desactivar</button>
+            </div>
+          `;
+          list.appendChild(row);
+        });
+      }
+
+      // handlers
+      qsa('[data-edit]', list).forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const id = btn.getAttribute('data-edit');
+          const svc = (j.services||[]).find(x=>String(x.id)===String(id));
+          if(!svc) return;
+          const name = prompt('Nombre del servicio', svc.name||'');
+          if(name===null) return;
+          const price = prompt('Precio COP (solo número)', String(Math.round((svc.price_cents||0)/100)));
+          if(price===null) return;
+          const dur = prompt('Duración (min)', String(svc.duration_min||60));
+          if(dur===null) return;
+          const buf = prompt('Buffer (min)', String(svc.buffer_min||0));
+          if(buf===null) return;
+          const modes = prompt('Modalidades (VIRTUAL,PRESENTIAL)', (svc.modes||[]).join(',') || 'VIRTUAL,PRESENTIAL');
+          if(modes===null) return;
+          const indications = prompt('Indicaciones (se verán en el resumen)', svc.indications||'') ?? svc.indications;
+          const payload = {name, price_cop: parseInt(price,10)||0, duration_min: parseInt(dur,10)||60, buffer_min: parseInt(buf,10)||0, modes, indications};
+          await apiPost(apiBase, `/practitioner/services/${encodeURIComponent(id)}`, nonce, payload, 'PUT');
+          await refreshServices();
+        });
+      });
+      qsa('[data-del]', list).forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const id = btn.getAttribute('data-del');
+          if(!confirm('¿Desactivar este servicio?')) return;
+          await apiPost(apiBase, `/practitioner/services/${encodeURIComponent(id)}`, nonce, {}, 'DELETE');
+          await refreshServices();
+        });
+      });
+    }
+
+    // Add new service
+    const addBtn = root.querySelector('[data-miapp-add-service]');
+    if(addBtn){
+      addBtn.addEventListener('click', async ()=>{
+        const name = prompt('Nombre del servicio');
+        if(!name) return;
+        const price = prompt('Precio COP (solo número)','0');
+        if(price===null) return;
+        const dur = prompt('Duración (min)','60');
+        if(dur===null) return;
+        const buf = prompt('Buffer (min)','10');
+        if(buf===null) return;
+        const modes = prompt('Modalidades (VIRTUAL,PRESENTIAL)','VIRTUAL,PRESENTIAL');
+        if(modes===null) return;
+        const indications = prompt('Indicaciones (se verán en el resumen)','') || '';
+        const payload = {name, price_cop: parseInt(price,10)||0, duration_min: parseInt(dur,10)||60, buffer_min: parseInt(buf,10)||0, modes, indications};
+        await apiPost(apiBase, '/practitioner/services', nonce, payload, 'POST');
+        await refreshServices();
+      });
+    }
+
+
+    let viewMonth = new Date(); viewMonth.setDate(1);
+    const now = new Date(); const minIso = '0000-01-01'; // Mia ve todo el mes
+
+    const listBox = qs('.miapp-day-list', root);
+    const dayTitle = qs('.miapp-day-title', root);
+
+    async function loadRange(){
+      const from = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1).toISOString();
+      const to = new Date(viewMonth.getFullYear(), viewMonth.getMonth()+1, 0, 23, 59, 59).toISOString();
+      const j = await apiGet(apiBase, `/practitioner/appointments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, nonce);
+      return j.appointments || [];
+    }
+
+    function buildDayMap(appts){
+      const map = {};
+      appts.forEach(a=>{
+        const day = isoDateLocalFromUtc(a.start_at);
+        map[day] = map[day] || {count:0, items:[]};
+        map[day].count += 1;
+        map[day].items.push(a);
+      });
+      return map;
+    }
+
+    function renderDay(apptsDay, dayIso){
+      if(dayTitle) dayTitle.textContent = dayIso;
+      if(!listBox) return;
+      listBox.innerHTML = '';
+      const items = (apptsDay && apptsDay.items) ? apptsDay.items : [];
+      if(!items.length){
+        listBox.innerHTML = '<div class="miapp-muted">No hay citas ese día.</div>';
+        return;
+      }
+      items.sort((a,b)=> (a.start_at>b.start_at?1:-1));
+      items.forEach(a=>{
+        const d = new Date(a.start_at.replace(' ','T')+'Z');
+        const row = document.createElement('div');
+        row.className = 'miapp-appt';
+        row.innerHTML = `
+          <div class="miapp-appt__top">
+            <strong>${d.toLocaleString('es-CO',{hour:'2-digit',minute:'2-digit'})}</strong>
+            <span class="miapp-badge">${escapeHtml(a.status||'')}</span>
+          </div>
+          <div class="miapp-appt__meta">${escapeHtml(a.display_name||a.user_email||'Paciente')}</div>
+          <div class="miapp-appt__actions">
+            <button type="button" class="miapp-btn miapp-btn--outline" data-att="${a.id}" data-v="ATTENDED">Asistió</button>
+            <button type="button" class="miapp-btn miapp-btn--outline" data-att="${a.id}" data-v="NO_SHOW">No vino</button>
+          </div>
+        `;
+        listBox.appendChild(row);
+      });
+
+      qsa('[data-att]', listBox).forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const id = btn.getAttribute('data-att');
+          const v = btn.getAttribute('data-v');
+          try{
+            btn.disabled = true;
+            await apiPost(apiBase, `/practitioner/appointments/${encodeURIComponent(id)}/attendance`, nonce, {attendance_status:v});
+            await refresh();
+          }catch(e){
+            alert(e.message||'No pude actualizar');
+          }finally{
+            btn.disabled = false;
+          }
+        });
+      });
+    }
+
+    let dayMap = {};
+    async function refresh(){
+      try{
+        const appts = await loadRange();
+        dayMap = buildDayMap(appts);
+      }catch(e){
+        dayMap = {};
+        // keep UI visible even if API fails (nonce/permissions/etc.)
+      }
+      renderMiniCalendar(root, viewMonth, dayMap, minIso, (dayIso)=>renderDay(dayMap[dayIso], dayIso));
+      const todayIso = now.toISOString().slice(0,10);
+      renderDay(dayMap[todayIso], todayIso);
+    }
+
+    qs('.miapp-mini-cal__prev', root).addEventListener('click', ()=>{ viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth()-1, 1); refresh(); });
+    qs('.miapp-mini-cal__next', root).addEventListener('click', ()=>{ viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth()+1, 1); refresh(); });
+
+    await refresh();
+  }
+
+  function scan(){
+    qsa('.miapp-modal').forEach(initModal);
+    qsa('.miapp-patient').forEach(el=>{ if(el.dataset.miappDashInit!=='1'){ el.dataset.miappDashInit='1'; initPatientDashboard(el).catch(()=>{});} });
+    qsa('.miapp-mia').forEach(el=>{ if(el.dataset.miappDashInit!=='1'){ el.dataset.miappDashInit='1'; initMiaDashboard(el).catch(()=>{});} });
+    qsa('[data-miapp-open]').forEach(btn=>{
+      if(btn.dataset.miappBound === '1') return;
+      btn.dataset.miappBound = '1';
+      btn.addEventListener('click', ()=>{
+        const id = btn.getAttribute('data-miapp-open');
+        const modal = id ? document.getElementById(id) : null;
+        if(modal){ initModal(modal); openModal(modal); }
       });
     });
   }
 
-  refresh();
+  document.addEventListener('DOMContentLoaded', scan);
+  // Elementor: re-scan cuando renderiza widgets
+  document.addEventListener('elementor/popup/show', scan);
+  document.addEventListener('elementor/frontend/init', function(){
+    if(window.elementorFrontend){
+      window.elementorFrontend.hooks.addAction('frontend/element_ready/global', scan);
+    }
+  });
+
+  window.MIAPP = window.MIAPP || {};
+  window.MIAPP.scan = scan;
 })();
+
+
+document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ const open=document.querySelector('.miapp-modal[aria-hidden="false"]'); if(open && window.MIAPP && window.MIAPP.closeModal) window.MIAPP.closeModal(open);} });

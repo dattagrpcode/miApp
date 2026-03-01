@@ -1,0 +1,149 @@
+/* Miapp critical styles: modal overlay + calendar basics (always loaded) */
+body.miapp-modal-open{overflow:hidden !important;}
+
+.miapp-modal{
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 999999 !important;
+  display: none !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 20px !important;
+}
+.miapp-modal[aria-hidden="false"]{display:flex !important;}
+.miapp-modal__backdrop{
+  position:absolute !important;
+  inset:0 !important;
+  background:rgba(0,0,0,.55) !important;
+}
+.miapp-modal__panel{
+  position:relative !important;
+  z-index:1 !important;
+  width:min(980px,96vw) !important;
+  max-height:90vh !important;
+  overflow:hidden !important;
+  background:#fff !important;
+  border-radius:16px !important;
+  display:flex !important;
+  flex-direction:column !important;
+}
+
+/* Header stays visible */
+.miapp-modal__header{
+  position:sticky !important;
+  top:0 !important;
+  z-index:5 !important;
+  background:#fff !important;
+  border-bottom:1px solid rgba(0,0,0,.10) !important;
+}
+
+/* Body scrolls under header */
+.miapp-modal__body{
+  overflow:auto !important;
+  -webkit-overflow-scrolling:touch;
+  padding-bottom:16px;
+}
+
+/* Make sure text is readable */
+.miapp-modal__panel, .miapp-modal__panel *{ color:#111 !important; }
+
+
+/* Calendar minimal */
+.miapp-cal{margin:10px 0;}
+.miapp-cal__header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}
+.miapp-cal__nav{border:1px solid rgba(0,0,0,.12);background:#fff;border-radius:10px;padding:6px 10px;cursor:pointer;}
+.miapp-cal__label{text-transform:capitalize;font-weight:600;}
+.miapp-cal__week{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;font-size:12px;opacity:.7;margin-bottom:6px;}
+.miapp-cal__grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
+.miapp-day{border:1px solid rgba(0,0,0,.12);background:#fff;border-radius:12px;padding:8px;cursor:pointer;text-align:left;}
+.miapp-day--disabled{opacity:.45;cursor:not-allowed;}
+.miapp-day--selected{outline:2px solid rgba(0,0,0,.25);}
+.miapp-day__num{font-weight:700;font-size:14px;}
+.miapp-day__meta{display:flex;align-items:center;gap:6px;font-size:11px;opacity:.85;margin-top:2px;}
+.miapp-dot{display:inline-block;width:10px;height:10px;border-radius:999px;background:#ccc;}
+.miapp-dot--good{background:#16a34a;}
+.miapp-dot--low{background:#f59e0b;}
+.miapp-dot--none{background:#ef4444;}
+.miapp-cal__legend{display:flex;gap:14px;font-size:12px;opacity:.8;margin-top:10px;flex-wrap:wrap;}
+.miapp-cal__legend span{display:flex;align-items:center;gap:6px;}
+
+/* Dashboard minimal */
+.miapp-card{background:#fff;border:1px solid rgba(0,0,0,.10);border-radius:16px;padding:16px;}
+.miapp-dash-grid{display:grid;grid-template-columns:320px 1fr;gap:16px;align-items:start;}
+@media (max-width: 900px){.miapp-dash-grid{grid-template-columns:1fr;}}
+.miapp-mini-cal__header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}
+.miapp-mini-cal__week{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;font-size:12px;opacity:.7;margin-bottom:6px;}
+.miapp-mini-cal__grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
+.miapp-appt{border:1px solid rgba(0,0,0,.10);border-radius:14px;padding:12px;margin-bottom:10px;}
+.miapp-appt__top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;}
+.miapp-badge{font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(0,0,0,.06);}
+.miapp-appt__actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+.miapp-muted{opacity:.75;font-size:13px;margin-top:8px;}
+.miapp-cal__dow{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;font-size:12px;opacity:.75;margin-bottom:6px;text-align:center;}
+.miapp-day{min-height:54px;}
+
+
+/* ===== Agenda médica: calendario izquierda / slots derecha ===== */
+.miapp-agenda{
+  display:flex;
+  gap:16px;
+  align-items:flex-start;
+}
+.miapp-agenda__left{flex: 0 0 360px;}
+.miapp-agenda__right{flex:1; min-width: 0;}
+.miapp-slots-title{
+  font-weight:600;
+  margin: 2px 0 10px;
+}
+@media (max-width: 860px){
+  .miapp-agenda{flex-direction:column;}
+  .miapp-agenda__left{flex: 1 1 auto;}
+}
+
+
+/* ===== UI POLISH ===== */
+.miapp-modal__panel, .miapp-modal__panel * { color:#111 !important; }
+
+/* Selected service / slot */
+.miapp-service.is-selected{
+  border-color: var(--miapp-primary, #111) !important;
+  background: rgba(0,0,0,.04) !important;
+  box-shadow: 0 0 0 3px rgba(0,0,0,.10) !important;
+}
+.miapp-slot-item.is-active{
+  border-color: var(--miapp-primary, #111) !important;
+  background: rgba(0,0,0,.04) !important;
+  box-shadow: 0 0 0 3px rgba(0,0,0,.10) !important;
+}
+
+/* Patient reserved day highlight */
+.miapp-day--has-appt:not(.miapp-day--disabled){
+  background: rgba(0,128,0,.08) !important;
+  border-color: rgba(0,128,0,.35) !important;
+}
+.miapp-day--has-appt .miapp-day__num{ font-weight: 700; }
+
+/* Modal agenda columns */
+.miapp-agenda{
+  display:flex;
+  gap:16px;
+  align-items:flex-start;
+}
+.miapp-agenda__left{ flex:0 0 360px; }
+.miapp-agenda__right{ flex:1; min-width:0; }
+@media (max-width: 768px){
+  .miapp-agenda{ flex-direction:column; }
+  .miapp-agenda__left{ width:100%; flex-basis:auto; }
+}
+
+/* Sticky modal header so calendar doesn't overlap title */
+.miapp-modal__panel{ display:flex; flex-direction:column; }
+.miapp-modal__header{
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 5 !important;
+  background: #fff !important;
+  border-bottom: 1px solid rgba(0,0,0,.08) !important;
+}
+.miapp-modal__body{ padding-top: 12px; }
+

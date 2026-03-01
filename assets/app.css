@@ -7,7 +7,7 @@
   --miapp-radius:12px;
 }
 
-.miapp-card{
+.miapp-card{background:var(--miapp-card-bg);border-radius:var(--miapp-radius);
   max-width:760px;
   padding:16px;
   border:1px solid var(--miapp-border);
@@ -117,3 +117,290 @@ body.miapp-modal-open{
 .miapp-modal__body{
   padding:16px;
 }
+
+
+.miapp-kpis{
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap:12px;
+  margin-top:12px;
+}
+.miapp-kpi{
+  background: rgba(0,0,0,0.04);
+  padding:12px;
+  border-radius: var(--miapp-radius, 14px);
+}
+.miapp-kpi__v{
+  font-size:22px;
+  font-weight:700;
+  margin-top:4px;
+}
+
+/* ===== MODAL OVERLAY (anti-themes) ===== */
+.miapp-modal{position:fixed !important; inset:0 !important; z-index:999999 !important; display:none !important; align-items:center !important; justify-content:center !important; padding:20px !important;}
+.miapp-modal[aria-hidden="false"]{display:flex !important;}
+.miapp-modal__backdrop{position:absolute !important; inset:0 !important; background:rgba(0,0,0,.55) !important;}
+.miapp-modal__panel{position:relative !important; z-index:1 !important;}
+body.miapp-modal-open{overflow:hidden !important;}
+
+/* ===== CALENDARIO MENSUAL ===== */
+.miapp-cal{margin:10px 0 14px;}
+.miapp-cal__head{display:flex; gap:10px; align-items:center; justify-content:space-between; margin-bottom:8px;}
+.miapp-cal__label{font-weight:700;}
+.miapp-cal__dow{display:grid; grid-template-columns:repeat(7,1fr); gap:6px; font-size:12px; opacity:.75; margin-bottom:6px;}
+.miapp-cal__dow span{display:flex; justify-content:center;}
+.miapp-cal__grid{display:grid; grid-template-columns:repeat(7,1fr); gap:6px;}
+.miapp-day{border:1px solid rgba(0,0,0,.10); border-radius:12px; padding:10px 8px; min-height:44px; display:flex; flex-direction:column; align-items:flex-start; justify-content:space-between; cursor:pointer; user-select:none; background:var(--miapp-card-bg,#fff);}
+.miapp-day__num{font-weight:700; font-size:13px;}
+.miapp-day__meta{display:flex; align-items:center; gap:6px; font-size:12px; opacity:.8;}
+.miapp-dot{width:10px; height:10px; border-radius:999px; display:inline-block;}
+.miapp-dot--good{background:#16a34a;}
+.miapp-dot--low{background:#f59e0b;}
+.miapp-dot--none{background:#ef4444;}
+.miapp-day--disabled{opacity:.35; cursor:not-allowed;}
+.miapp-day--selected{outline:2px solid var(--miapp-primary,#2563eb);}
+.miapp-cal__legend{display:flex; gap:12px; flex-wrap:wrap; margin-top:10px; font-size:12px; opacity:.85;}
+.miapp-legend{display:flex; gap:6px; align-items:center;}
+
+
+/* ===== Services list (Step 1) ===== */
+.miapp-services{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.miapp-service{
+  border:1px solid var(--miapp-border);
+  border-radius:14px;
+  padding:12px 14px;
+  background:var(--miapp-bg);
+  cursor:pointer;
+  text-align:left;
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  align-items:flex-start;
+}
+.miapp-service:hover{border-color:rgba(0,0,0,.25);}
+.miapp-service.is-selected{
+  border-color:var(--miapp-primary);
+  box-shadow:0 0 0 2px rgba(108,99,255,.25);
+}
+.miapp-service__name{font-weight:700;}
+.miapp-service__desc{color:var(--miapp-muted);font-size:13px;margin-top:2px;}
+.miapp-service__meta{white-space:nowrap;font-weight:700;}
+.miapp-service__dur{display:block;font-weight:500;color:var(--miapp-muted);font-size:12px;margin-top:4px;}
+
+/* ===== Transaction summary (Step 3) ===== */
+.miapp-summary{
+  border:1px solid var(--miapp-border);
+  border-radius:14px;
+  padding:12px 14px;
+  background:#fafafa;
+  margin:10px 0 14px;
+}
+.miapp-summary__row{display:flex;justify-content:space-between;gap:12px;margin:6px 0;}
+.miapp-summary__label{color:var(--miapp-muted);font-size:13px;}
+.miapp-summary__value{font-weight:700;}
+
+
+/* ===== Slots as selectable list (agenda médica) ===== */
+.miapp-slot-list{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.miapp-slot-item{
+  border:1px solid rgba(0,0,0,.12);
+  border-radius:12px;
+  padding:12px 14px;
+  cursor:pointer;
+  background:#fff;
+}
+.miapp-slot-item:hover{
+  border-color: rgba(0,0,0,.25);
+}
+.miapp-slot-item.is-active{
+  border-color: rgba(0,0,0,.55);
+  box-shadow: 0 0 0 3px rgba(0,0,0,.06);
+}
+.miapp-slot-item__time{
+  font-weight:700;
+}
+.miapp-slot-item__meta{
+  opacity:.75;
+  font-size:.92em;
+  margin-top:2px;
+}
+
+
+/* ===== UI polish ===== */
+.miapp-modal__close{
+  width:38px;height:38px;border-radius:999px;
+  border:1px solid rgba(0,0,0,.12);
+  background:#fff;
+  display:inline-flex;align-items:center;justify-content:center;
+  cursor:pointer;
+}
+.miapp-modal__close:hover{ background:rgba(0,0,0,.04); }
+
+.miapp-choice{
+  border:1px solid rgba(0,0,0,.12);
+  border-radius:14px;
+  padding:12px;
+  cursor:pointer;
+  background:#fff;
+  transition:transform .06s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.miapp-choice.is-selected{
+  border-color:rgba(0,0,0,.75);
+  box-shadow:0 0 0 3px rgba(0,0,0,.12);
+  transform:translateY(-1px);
+}
+
+/* Agenda layout: desktop side-by-side, phone stacked */
+.miapp-agenda{ display:flex; gap:16px; align-items:flex-start; }
+.miapp-agenda__left{ flex:0 0 360px; }
+.miapp-agenda__right{ flex:1; min-width:0; }
+@media (max-width: 768px){
+  .miapp-agenda{ flex-direction:column; }
+  .miapp-agenda__left{ width:100%; flex-basis:auto; }
+}
+
+
+/* Service & slot selection highlight */
+.miapp-service{
+  border:1px solid rgba(0,0,0,.12);
+  border-radius:14px;
+  padding:12px;
+  background:#fff;
+  cursor:pointer;
+  transition:transform .06s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.miapp-service.is-selected{
+  border-color:rgba(0,0,0,.75);
+  box-shadow:0 0 0 3px rgba(0,0,0,.12);
+  transform:translateY(-1px);
+}
+.miapp-slot-item{
+  border:1px solid rgba(0,0,0,.12);
+  border-radius:14px;
+  padding:12px;
+  background:#fff;
+  cursor:pointer;
+  transition:transform .06s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.miapp-slot-item.is-active{
+  border-color:rgba(0,0,0,.75);
+  box-shadow:0 0 0 3px rgba(0,0,0,.12);
+  transform:translateY(-1px);
+}
+
+
+/* ===== UI POLISH ===== */
+.miapp-modal__panel, .miapp-modal__panel * { color:#111 !important; }
+
+/* Selected service / slot */
+.miapp-service.is-selected{
+  border-color: var(--miapp-primary, #111) !important;
+  background: rgba(0,0,0,.04) !important;
+  box-shadow: 0 0 0 3px rgba(0,0,0,.10) !important;
+}
+.miapp-slot-item.is-active{
+  border-color: var(--miapp-primary, #111) !important;
+  background: rgba(0,0,0,.04) !important;
+  box-shadow: 0 0 0 3px rgba(0,0,0,.10) !important;
+}
+
+/* Patient reserved day highlight */
+.miapp-day--has-appt:not(.miapp-day--disabled){
+  background: rgba(0,128,0,.08) !important;
+  border-color: rgba(0,128,0,.35) !important;
+}
+.miapp-day--has-appt .miapp-day__num{ font-weight: 700; }
+
+/* Modal agenda columns */
+.miapp-agenda{
+  display:flex;
+  gap:16px;
+  align-items:flex-start;
+}
+.miapp-agenda__left{ flex:0 0 360px; }
+.miapp-agenda__right{ flex:1; min-width:0; }
+@media (max-width: 768px){
+  .miapp-agenda{ flex-direction:column; }
+  .miapp-agenda__left{ width:100%; flex-basis:auto; }
+}
+
+/* Sticky modal header so calendar doesn't overlap title */
+.miapp-modal__panel{ display:flex; flex-direction:column; }
+.miapp-modal__header{
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 5 !important;
+  background: #fff !important;
+  border-bottom: 1px solid rgba(0,0,0,.08) !important;
+}
+.miapp-modal__body{ padding-top: 12px; }
+
+
+
+/* KPI cards */
+.miapp-kpis{
+  display:grid;
+  grid-template-columns: repeat(5, minmax(0,1fr));
+  gap:12px;
+  margin-bottom:12px;
+}
+@media (max-width: 900px){
+  .miapp-kpis{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+.miapp-kpi{
+  border:1px solid rgba(0,0,0,.10);
+  border-radius:12px;
+  padding:10px 12px;
+  background:#fff;
+}
+.miapp-kpi__num{ font-size:20px; font-weight:800; line-height:1; }
+.miapp-kpi__label{ font-size:12px; opacity:.8; margin-top:6px; }
+
+
+
+/* Status badge colors */
+.miapp-appt[data-status="PENDING"] .miapp-badge{ background: rgba(255,193,7,.25) !important; border-color: rgba(255,193,7,.5) !important; }
+.miapp-appt[data-status="CONFIRMED"] .miapp-badge{ background: rgba(40,167,69,.20) !important; border-color: rgba(40,167,69,.5) !important; }
+.miapp-appt[data-status="CLOSED"] .miapp-badge{ background: rgba(108,117,125,.20) !important; border-color: rgba(108,117,125,.5) !important; }
+.miapp-appt[data-status="CANCELED"] .miapp-badge{ background: rgba(220,53,69,.18) !important; border-color: rgba(220,53,69,.45) !important; }
+
+
+
+/* Force black text inside plugin UI */
+.miapp, .miapp * { color: #111; }
+
+/* Patient mini-calendar: mark days with appointments in green and hide dots */
+.miapp-patient .miapp-day__meta { display:none; }
+.miapp-patient .miapp-day--has-appt{
+  background: rgba(0,128,0,.12);
+  border-color: rgba(0,128,0,.35);
+}
+
+
+/* ===== 6.3 UI polish ===== */
+.miapp-modal__panel{ max-width: 980px; width: min(980px, 96vw); color:#111; }
+.miapp-modal__header{ position: sticky; top: 0; background: #fff; z-index: 3; }
+.miapp-modal__body{ color:#111; }
+.miapp-list{ display:flex; flex-direction:column; gap:10px; }
+.miapp-list__item{ text-align:left; padding:12px 14px; border:1px solid rgba(0,0,0,.15); border-radius:12px; background:#fff; cursor:pointer; }
+.miapp-list__item.is-selected{ border-color: currentColor; outline: 2px solid rgba(0,0,0,.2); }
+.miapp-slot-row.is-selected, .miapp-service-row.is-selected{ outline:2px solid rgba(0,0,0,.25); border-radius:12px; }
+.miapp-patient .miapp-day__meta span{ display:none; } /* hide numbers for patient */
+.miapp-patient .miapp-day.has-count .miapp-day__dot{ background: #2e7d32; } /* green dot for appointment days */
+/* 2-column layout in step 2 on desktop */
+.miapp-step[data-step="2"] .miapp-agenda-grid{ display:grid; grid-template-columns: 320px 1fr; gap:14px; align-items:start; }
+@media (max-width: 720px){
+  .miapp-step[data-step="2"] .miapp-agenda-grid{ grid-template-columns: 1fr; }
+}
+/* close button nicer */
+.miapp-modal__close{ font-size: 22px; width: 36px; height: 36px; border-radius: 10px; border: 1px solid rgba(0,0,0,.15); background:#fff; }
+
+.miapp-card{ color:#111; }

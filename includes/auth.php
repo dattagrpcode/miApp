@@ -26,10 +26,11 @@ class Miapp_Auth {
     if (is_user_logged_in()) return '';
     if (isset($_POST['miapp_register']) && isset($_POST['_wpnonce']) && wp_verify_nonce($_POST['_wpnonce'],'miapp_register')) {
       $email = sanitize_email($_POST['email'] ?? '');
-      $name = sanitize_text_field($_POST['name'] ?? '');
+      $legal = sanitize_text_field($_POST['legal_name'] ?? '');
+      $preferred = sanitize_text_field($_POST['preferred_name'] ?? '');
       $pass = $_POST['password'] ?? '';
 
-      if (!$email || !$pass || !$name) {
+      if (!$email || !$pass || !$legal) {
         return '<div class="miapp-card"><p style="color:#b00020;">Faltan datos.</p></div>'.$this->registerForm();
       }
       if (email_exists($email)) {

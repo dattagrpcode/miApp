@@ -1,8 +1,0 @@
-{
-  "name": "miapp/booking",
-  "description": "Miapp Booking: servicios, registro, auto-agenda con Google Calendar + Meet",
-  "type": "project",
-  "require": {
-    "google/apiclient": "^2.16"
-  }
-}

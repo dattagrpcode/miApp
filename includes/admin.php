@@ -8,7 +8,7 @@ class Miapp_Admin {
       add_menu_page(
         'Miapp Booking',
         'Miapp Booking',
-        'manage_options',
+        'miapp_manage',
         'miapp-booking',
         [$this,'page'],
         'dashicons-calendar-alt'
@@ -16,240 +16,361 @@ class Miapp_Admin {
     });
   }
 
-  private function sanitize_color($c, $default='#111111') {
-    $c = trim((string)$c);
-    if (preg_match('/^#[0-9a-fA-F]{6}$/', $c)) return $c;
-    return $default;
+  private function get($key, $default=null) {
+    $v = get_option(Miapp_Settings::OPT, []);
+    if (!is_array($v)) $v = [];
+    $v = array_merge(Miapp_Settings::defaults(), $v);
+    return array_key_exists($key, $v) ? $v[$key] : $default;
   }
 
-  private function get_tab(): string {
-    return sanitize_text_field($_GET['tab'] ?? 'rules');
+  private function sanitize_color($c, $default='#111111') {
+    $c = trim((string)$c);
+    return preg_match('/^#[0-9a-fA-F]{6}$/', $c) ? $c : $default;
   }
 
   public function page() {
     if (!current_user_can('manage_options')) return;
 
-    $msg = '';
+    $tab = isset($_GET['tab']) ? sanitize_key($_GET['tab']) : 'rules';
 
-    // Callback OAuth Google
-    if (isset($_GET['code'])) {
-      try {
-        $g = new Miapp_Google();
-        $g->handleCode(sanitize_text_field($_GET['code']));
-        $msg = '<div class="notice notice-success"><p>Google conectado ✅</p></div>';
-      } catch (Exception $e) {
-        $msg = '<div class="notice notice-error"><p>'.esc_html($e->getMessage()).'</p></div>';
+    // Handle POST per tab
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['miapp_tab']) && check_admin_referer('miapp_save_'.$tab)) {
+      $postedTab = sanitize_key($_POST['miapp_tab']);
+      if ($postedTab === 'branding') {
+        $settings = get_option(Miapp_Settings::OPT, []);
+        if (!is_array($settings)) $settings = [];
+        $settings['brand_primary'] = $this->sanitize_color($_POST['brand_primary'] ?? '#111111', '#111111');
+        $settings['brand_bg']      = $this->sanitize_color($_POST['brand_bg'] ?? '#ffffff', '#ffffff');
+        $settings['brand_text']    = $this->sanitize_color($_POST['brand_text'] ?? '#111111', '#111111');
+        $settings['brand_radius']  = strval(intval($_POST['brand_radius'] ?? 14));
+        update_option(Miapp_Settings::OPT, $settings);
+
+        // legacy compatibility
+        update_option('miapp_brand_primary_color', $settings['brand_primary']);
       }
+
+      if ($postedTab === 'rules') {
+        update_option('miapp_day_start_hour', intval($_POST['day_start_hour'] ?? 9));
+        update_option('miapp_day_end_hour', intval($_POST['day_end_hour'] ?? 18));
+        update_option('miapp_days_enabled', sanitize_text_field($_POST['days_enabled'] ?? '1,2,3,4,5'));
+        update_option('miapp_min_hours_change', intval($_POST['min_hours_change'] ?? 24));
+      }
+
+      if ($postedTab === 'general') {
+        update_option('miapp_doctor_name', sanitize_text_field($_POST['doctor_name'] ?? 'Mia'));
+        update_option('miapp_disable_css', isset($_POST['disable_css']) ? '1' : '0');
+      }
+
+      if ($postedTab === 'shortcodes') {
+        // nothing to save
+      }
+
+
+      if ($postedTab === 'emails') {
+        update_option('miapp_email_subject_confirm', sanitize_text_field($_POST['email_subject_confirm'] ?? 'Confirmación de cita'));
+        update_option('miapp_email_subject_cancel', sanitize_text_field($_POST['email_subject_cancel'] ?? 'Cita cancelada'));
+        update_option('miapp_email_subject_reschedule', sanitize_text_field($_POST['email_subject_reschedule'] ?? 'Cita reagendada'));
+        update_option('miapp_email_subject_status', sanitize_text_field($_POST['email_subject_status'] ?? 'Actualización de tu cita'));
+
+        // Templates: allow safe HTML
+        update_option('miapp_email_tpl_confirm', wp_kses_post($_POST['email_tpl_confirm'] ?? ''));
+        update_option('miapp_email_tpl_cancel', wp_kses_post($_POST['email_tpl_cancel'] ?? ''));
+        update_option('miapp_email_tpl_reschedule', wp_kses_post($_POST['email_tpl_reschedule'] ?? ''));
+        update_option('miapp_email_tpl_status', wp_kses_post($_POST['email_tpl_status'] ?? ''));
+      }
+
+
+      echo '<div class="updated"><p>Guardado.</p></div>';
     }
 
-    // Guardar ajustes (por tab)
-    if (isset($_POST['miapp_save']) && check_admin_referer('miapp_save')) {
-
-      // Helper: solo actualiza si viene en POST (para no pisar otros tabs)
-      $upd = function(string $opt, $value) {
-        update_option($opt, $value);
-      };
-
-      // Google
-      if (array_key_exists('google_client_id', $_POST)) {
-        $upd('miapp_google_client_id', sanitize_text_field($_POST['google_client_id']));
-      }
-      if (array_key_exists('google_client_secret', $_POST)) {
-        $upd('miapp_google_client_secret', sanitize_text_field($_POST['google_client_secret']));
-      }
-      if (array_key_exists('calendar_id', $_POST)) {
-        $upd('miapp_calendar_id', sanitize_text_field($_POST['calendar_id'] ?: 'primary'));
-      }
-
-      // Reglas
-      if (array_key_exists('doctor_name', $_POST)) {
-        $upd('miapp_doctor_name', sanitize_text_field($_POST['doctor_name'] ?: 'Mia'));
-      }
-      if (array_key_exists('min_hours_change', $_POST)) {
-        $upd('miapp_min_hours_change', max(0, intval($_POST['min_hours_change'])));
-      }
-      if (array_key_exists('day_start_hour', $_POST)) {
-        $upd('miapp_day_start_hour', max(0, min(23, intval($_POST['day_start_hour']))));
-      }
-      if (array_key_exists('day_end_hour', $_POST)) {
-        $upd('miapp_day_end_hour', max(0, min(23, intval($_POST['day_end_hour']))));
-      }
-      if (array_key_exists('days_enabled', $_POST)) {
-        // 1=Lun..7=Dom (guardado como string CSV)
-        $raw = sanitize_text_field($_POST['days_enabled'] ?: '1,2,3,4,5');
-        $upd('miapp_days_enabled', $raw);
-      }
-
-      // Branding (Miapp_Settings::OPT)
-      if (array_key_exists('brand_primary', $_POST) || array_key_exists('brand_bg', $_POST) || array_key_exists('brand_text', $_POST) || array_key_exists('brand_radius', $_POST)) {
-        $current = Miapp_Settings::get();
-        $current['brand_primary'] = $this->sanitize_color($_POST['brand_primary'] ?? $current['brand_primary'], $current['brand_primary']);
-        $current['brand_bg']      = $this->sanitize_color($_POST['brand_bg'] ?? $current['brand_bg'], $current['brand_bg']);
-        $current['brand_text']    = $this->sanitize_color($_POST['brand_text'] ?? $current['brand_text'], $current['brand_text']);
-        $current['brand_radius']  = (string) max(6, min(24, intval($_POST['brand_radius'] ?? $current['brand_radius'])));
-        update_option(Miapp_Settings::OPT, $current);
-
-        // Compat legacy
-        update_option('miapp_brand_primary_color', $current['brand_primary']);
-
-        if (array_key_exists('brand_logo', $_POST)) {
-          update_option('miapp_brand_logo_url', esc_url_raw($_POST['brand_logo'] ?? ''));
-        }
-      } else {
-        // Logo puede venir solo
-        if (array_key_exists('brand_logo', $_POST)) {
-          update_option('miapp_brand_logo_url', esc_url_raw($_POST['brand_logo'] ?? ''));
-        }
-      }
-
-      // Correos
-      if (array_key_exists('sub_confirm', $_POST)) $upd('miapp_email_subject_confirm', sanitize_text_field($_POST['sub_confirm'] ?? ''));
-      if (array_key_exists('sub_cancel', $_POST)) $upd('miapp_email_subject_cancel', sanitize_text_field($_POST['sub_cancel'] ?? ''));
-      if (array_key_exists('sub_reschedule', $_POST)) $upd('miapp_email_subject_reschedule', sanitize_text_field($_POST['sub_reschedule'] ?? ''));
-      if (array_key_exists('tpl_confirm', $_POST)) $upd('miapp_email_tpl_confirm', wp_kses_post($_POST['tpl_confirm'] ?? ''));
-      if (array_key_exists('tpl_cancel', $_POST)) $upd('miapp_email_tpl_cancel', wp_kses_post($_POST['tpl_cancel'] ?? ''));
-      if (array_key_exists('tpl_reschedule', $_POST)) $upd('miapp_email_tpl_reschedule', wp_kses_post($_POST['tpl_reschedule'] ?? ''));
-
-      $msg = '<div class="notice notice-success"><p>Guardado ✅</p></div>';
-    }
-
-    $tab = $this->get_tab();
-
-    echo '<div class="wrap"><h1>Miapp Booking</h1>'.$msg;
-
-    // Tabs
-    echo '<h2 class="nav-tab-wrapper">';
     $tabs = [
+      'general'   => 'General',
       'rules'     => 'Reglas',
-      'google'    => 'Google',
       'branding'  => 'Branding',
+      'google'    => 'Google',
       'emails'    => 'Correos',
       'shortcodes'=> 'Shortcodes',
     ];
-    foreach ($tabs as $k=>$label) {
-      $active = ($tab === $k) ? ' nav-tab-active' : '';
-      echo '<a class="nav-tab'.$active.'" href="'.esc_url(admin_url('admin.php?page=miapp-booking&tab='.$k)).'">'.esc_html($label).'</a>';
+
+    echo '<div class="wrap"><h1>Miapp Booking</h1>';
+    echo '<h2 class="nav-tab-wrapper">';
+    foreach ($tabs as $k => $label) {
+      $class = ($k === $tab) ? 'nav-tab nav-tab-active' : 'nav-tab';
+      $url = admin_url('admin.php?page=miapp-booking&tab='.$k);
+      echo '<a class="'.esc_attr($class).'" href="'.esc_url($url).'">'.esc_html($label).'</a>';
     }
     echo '</h2>';
 
-    // Render tab
-    if ($tab === 'google') $this->render_google();
-    else if ($tab === 'branding') $this->render_branding();
-    else if ($tab === 'emails') $this->render_emails();
-    else if ($tab === 'shortcodes') $this->render_shortcodes();
-    else $this->render_rules();
+    if ($tab === 'general') $this->tabGeneral();
+    if ($tab === 'rules') $this->tabRules();
+    if ($tab === 'branding') $this->tabBranding();
+    if ($tab === 'google') $this->tabGoogle();
+    if ($tab === 'emails') $this->tabEmails();
+    if ($tab === 'shortcodes') $this->tabShortcodes();
 
     echo '</div>';
   }
 
-  private function render_rules() {
-    $doctor = esc_attr(get_option('miapp_doctor_name','Mia'));
-    $minh = intval(get_option('miapp_min_hours_change',24));
-    $startH = intval(get_option('miapp_day_start_hour',9));
-    $endH = intval(get_option('miapp_day_end_hour',18));
-    $days = esc_attr(get_option('miapp_days_enabled','1,2,3,4,5'));
+  private function tabGoogle() {
+    // Save settings
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['miapp_tab']) && sanitize_key($_POST['miapp_tab']) === 'google') {
+      // nonce already validated in page()
+      update_option('miapp_google_client_id', sanitize_text_field($_POST['google_client_id'] ?? ''));
+      update_option('miapp_google_client_secret', sanitize_text_field($_POST['google_client_secret'] ?? ''));
+      update_option('miapp_google_calendar_id', sanitize_text_field($_POST['google_calendar_id'] ?? 'primary'));
+    }
 
-    echo '<form method="post">';
-    wp_nonce_field('miapp_save');
-    echo '<input type="hidden" name="miapp_save" value="1" />';
+    $clientId = get_option('miapp_google_client_id','');
+    $clientSecret = get_option('miapp_google_client_secret','');
+    $calId = get_option('miapp_google_calendar_id','primary');
 
-    echo '<table class="form-table" role="presentation">';
-    echo '<tr><th><label>Nombre doctora</label></th><td><input class="regular-text" name="doctor_name" value="'.$doctor.'"></td></tr>';
-    echo '<tr><th><label>Horas mínimas para cancelar/reagendar</label></th><td><input type="number" min="0" name="min_hours_change" value="'.$minh.'"></td></tr>';
-    echo '<tr><th><label>Hora inicio (0-23)</label></th><td><input type="number" min="0" max="23" name="day_start_hour" value="'.$startH.'"></td></tr>';
-    echo '<tr><th><label>Hora fin (0-23)</label></th><td><input type="number" min="0" max="23" name="day_end_hour" value="'.$endH.'"><p class="description">Si ya pasó esta hora hoy, el calendario arranca desde el siguiente día habilitado.</p></td></tr>';
-    echo '<tr><th><label>Días habilitados</label></th><td><input class="regular-text" name="days_enabled" value="'.$days.'"><p class="description">1=Lun..7=Dom. Ej: 1,2,3,4,5</p></td></tr>';
-    echo '</table>';
+    $connected = false;
+    $authUrl = '';
+    $err = '';
 
-    submit_button('Guardar');
-    echo '</form>';
-  }
+    // Handle OAuth code
+    if (!empty($_GET['code'])) {
+      try {
+        $g = new Miapp_Google();
+        $g->handleCode(sanitize_text_field($_GET['code']));
+        $connected = true;
+        echo '<div class="updated"><p>Google conectado ✅</p></div>';
+      } catch (Throwable $e) {
+        $err = $e->getMessage();
+      }
+    }
 
-  private function render_google() {
-    $cid = esc_attr(get_option('miapp_google_client_id',''));
-    $sec = esc_attr(get_option('miapp_google_client_secret',''));
-    $cal = esc_attr(get_option('miapp_calendar_id','primary'));
-
-    echo '<form method="post">';
-    wp_nonce_field('miapp_save');
-    echo '<input type="hidden" name="miapp_save" value="1" />';
-
-    echo '<table class="form-table" role="presentation">';
-    echo '<tr><th>Client ID</th><td><input class="regular-text" name="google_client_id" value="'.$cid.'"></td></tr>';
-    echo '<tr><th>Client Secret</th><td><input class="regular-text" type="password" name="google_client_secret" value="'.$sec.'"></td></tr>';
-    echo '<tr><th>Calendar ID</th><td><input class="regular-text" name="calendar_id" value="'.$cal.'"></td></tr>';
-    echo '</table>';
+    // Disconnect
+    if (isset($_POST['miapp_google_disconnect']) && check_admin_referer('miapp_google_disconnect')) {
+      delete_option('miapp_google_token');
+      $connected = false;
+      echo '<div class="updated"><p>Google desconectado.</p></div>';
+    }
 
     try {
       $g = new Miapp_Google();
-      echo $g->isConnected()
-        ? '<p><b>Estado:</b> Conectado ✅</p>'
-        : '<p><a class="button button-secondary" href="'.esc_url($g->authUrl()).'">Conectar Google</a></p>';
-    } catch (Exception $e) {
-      echo '<p class="description">Configura Client ID/Secret y guarda.</p>';
+      $connected = $g->isConnected();
+      if (!$connected && $clientId && $clientSecret) {
+        $authUrl = $g->authUrl();
+      }
+    } catch (Throwable $e) {
+      $connected = (bool)get_option('miapp_google_token','');
+      if (!$err) $err = $e->getMessage();
     }
 
-    submit_button('Guardar');
-    echo '</form>';
+    ?>
+    <div class="miapp-card" style="max-width:980px">
+      <h2>Google Calendar + Meet</h2>
+      <p class="description">
+        Conecta la cuenta de Mia para crear eventos en Google Calendar y generar enlace de Google Meet para teleconsulta.
+      </p>
+
+      <?php if ($err): ?>
+        <div class="notice notice-warning"><p><?php echo esc_html($err); ?></p></div>
+      <?php endif; ?>
+
+      <form method="post">
+        <?php wp_nonce_field('miapp_save_google'); ?>
+        <input type="hidden" name="miapp_tab" value="google">
+        <table class="form-table" role="presentation">
+          <tr>
+            <th scope="row"><label>Client ID</label></th>
+            <td><input type="text" name="google_client_id" value="<?php echo esc_attr($clientId); ?>" class="large-text"></td>
+          </tr>
+          <tr>
+            <th scope="row"><label>Client Secret</label></th>
+            <td><input type="text" name="google_client_secret" value="<?php echo esc_attr($clientSecret); ?>" class="large-text"></td>
+          </tr>
+          <tr>
+            <th scope="row"><label>Calendar ID</label></th>
+            <td>
+              <input type="text" name="google_calendar_id" value="<?php echo esc_attr($calId); ?>" class="regular-text">
+              <p class="description">Usa <code>primary</code> o el ID del calendario.</p>
+            </td>
+          </tr>
+        </table>
+        <?php submit_button('Guardar'); ?>
+      </form>
+
+      <hr>
+
+      <h3>Estado</h3>
+      <?php if ($connected): ?>
+        <p>✅ Conectado. Se crearán eventos al confirmar citas.</p>
+        <form method="post">
+          <?php wp_nonce_field('miapp_google_disconnect'); ?>
+          <input type="hidden" name="miapp_google_disconnect" value="1">
+          <?php submit_button('Desconectar', 'delete'); ?>
+        </form>
+      <?php else: ?>
+        <p>🔌 No conectado.</p>
+        <?php if ($authUrl): ?>
+          <p><a class="button button-primary" href="<?php echo esc_url($authUrl); ?>">Conectar Google</a></p>
+          <p class="description">Redirect URI esperado: <code><?php echo esc_html(admin_url('admin.php?page=miapp-booking&tab=google')); ?></code></p>
+        <?php else: ?>
+          <p class="description">Guarda Client ID/Secret primero.</p>
+        <?php endif; ?>
+      <?php endif; ?>
+    </div>
+    <?php
   }
 
-  private function render_branding() {
-    $v = Miapp_Settings::get();
-    $logo = esc_attr(get_option('miapp_brand_logo_url',''));
-
-    echo '<form method="post">';
-    wp_nonce_field('miapp_save');
-    echo '<input type="hidden" name="miapp_save" value="1" />';
-
-    echo '<table class="form-table" role="presentation">';
-    echo '<tr><th><label>Color primario</label></th><td><input class="regular-text" name="brand_primary" value="'.esc_attr($v['brand_primary']).'"><p class="description">Hex: #RRGGBB</p></td></tr>';
-    echo '<tr><th><label>Color fondo</label></th><td><input class="regular-text" name="brand_bg" value="'.esc_attr($v['brand_bg']).'"></td></tr>';
-    echo '<tr><th><label>Color texto</label></th><td><input class="regular-text" name="brand_text" value="'.esc_attr($v['brand_text']).'"></td></tr>';
-    echo '<tr><th><label>Radio (6–24)</label></th><td><input type="number" min="6" max="24" name="brand_radius" value="'.esc_attr($v['brand_radius']).'"></td></tr>';
-    echo '<tr><th><label>Logo URL</label></th><td><input class="regular-text" name="brand_logo" value="'.$logo.'"><p class="description">URL del media uploader.</p></td></tr>';
-    echo '</table>';
-
-    submit_button('Guardar');
-    echo '</form>';
+  private function tabGeneral() {
+    $doctor = get_option('miapp_doctor_name', 'Mia');
+    $disableCss = get_option('miapp_disable_css','0') === '1';
+    ?>
+    <form method="post">
+      <?php wp_nonce_field('miapp_save_general'); ?>
+      <input type="hidden" name="miapp_tab" value="general">
+      <table class="form-table" role="presentation">
+        <tr>
+          <th scope="row"><label>Nombre profesional</label></th>
+          <td><input type="text" name="doctor_name" value="<?php echo esc_attr($doctor); ?>" class="regular-text"></td>
+        </tr>
+        <tr>
+          <th scope="row">Diseño</th>
+          <td>
+            <label>
+              <input type="checkbox" name="disable_css" value="1" <?php checked($disableCss); ?>>
+              No cargar estilos del plugin (para diseñar con Elementor/Gutenberg/Theme)
+            </label>
+          </td>
+        </tr>
+      </table>
+      <?php submit_button('Guardar'); ?>
+    </form>
+    <?php
   }
 
-  private function render_emails() {
-    $subC = esc_attr(get_option('miapp_email_subject_confirm',''));
-    $subX = esc_attr(get_option('miapp_email_subject_cancel',''));
-    $subR = esc_attr(get_option('miapp_email_subject_reschedule',''));
-
-    $tplC = esc_textarea(get_option('miapp_email_tpl_confirm',''));
-    $tplX = esc_textarea(get_option('miapp_email_tpl_cancel',''));
-    $tplR = esc_textarea(get_option('miapp_email_tpl_reschedule',''));
-
-    echo '<p class="description">Variables: <code>{{patient_name}}</code>, <code>{{doctor_name}}</code>, <code>{{date_human}}</code>, <code>{{meet_block}}</code>, <code>{{buttons_block}}</code></p>';
-
-    echo '<form method="post">';
-    wp_nonce_field('miapp_save');
-    echo '<input type="hidden" name="miapp_save" value="1" />';
-
-    echo '<table class="form-table" role="presentation">';
-    echo '<tr><th>Asunto confirmación</th><td><input class="regular-text" name="sub_confirm" value="'.$subC.'"></td></tr>';
-    echo '<tr><th>Plantilla confirmación</th><td><textarea name="tpl_confirm" rows="8" class="large-text">'.$tplC.'</textarea></td></tr>';
-    echo '<tr><th>Asunto cancelación</th><td><input class="regular-text" name="sub_cancel" value="'.$subX.'"></td></tr>';
-    echo '<tr><th>Plantilla cancelación</th><td><textarea name="tpl_cancel" rows="8" class="large-text">'.$tplX.'</textarea></td></tr>';
-    echo '<tr><th>Asunto reagendar</th><td><input class="regular-text" name="sub_reschedule" value="'.$subR.'"></td></tr>';
-    echo '<tr><th>Plantilla reagendar</th><td><textarea name="tpl_reschedule" rows="8" class="large-text">'.$tplR.'</textarea></td></tr>';
-    echo '</table>';
-
-    submit_button('Guardar');
-    echo '</form>';
+  private function tabRules() {
+    $start = intval(get_option('miapp_day_start_hour', 9));
+    $end = intval(get_option('miapp_day_end_hour', 18));
+    $days = get_option('miapp_days_enabled', '1,2,3,4,5');
+    $minh = intval(get_option('miapp_min_hours_change', 24));
+    ?>
+    <form method="post">
+      <?php wp_nonce_field('miapp_save_rules'); ?>
+      <input type="hidden" name="miapp_tab" value="rules">
+      <table class="form-table" role="presentation">
+        <tr>
+          <th scope="row"><label>Hora inicio</label></th>
+          <td><input type="number" min="0" max="23" name="day_start_hour" value="<?php echo esc_attr($start); ?>"></td>
+        </tr>
+        <tr>
+          <th scope="row"><label>Hora fin</label></th>
+          <td><input type="number" min="0" max="23" name="day_end_hour" value="<?php echo esc_attr($end); ?>"></td>
+        </tr>
+        <tr>
+          <th scope="row"><label>Días habilitados</label></th>
+          <td>
+            <input type="text" name="days_enabled" value="<?php echo esc_attr($days); ?>" class="regular-text">
+            <p class="description">Formato: 1=Lun … 6=Sáb, 7=Dom. Ej: 1,2,3,4,5</p>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row"><label>Horas mínimas para cambiar (cancelar/reagendar)</label></th>
+          <td><input type="number" min="1" name="min_hours_change" value="<?php echo esc_attr($minh); ?>"></td>
+        </tr>
+      </table>
+      <?php submit_button('Guardar'); ?>
+    </form>
+    <?php
   }
 
-  private function render_shortcodes() {
-    echo '<h2>Shortcodes</h2>';
-    echo '<ul style="list-style:disc;padding-left:20px">';
-    echo '<li><code>[miapp_booking]</code> — agenda embebida</li>';
-    echo '<li><code>[miapp_booking_button]</code> — botón con modal</li>';
-    echo '<li><code>[miapp_patient]</code> — panel del paciente</li>';
-    echo '<li><code>[miapp_login]</code> — login</li>';
-    echo '<li><code>[miapp_register]</code> — registro</li>';
-    echo '</ul>';
-    echo '<p><b>Ejemplo:</b> <code>[miapp_booking_button label="Agendar" style="primary" modal_title="Agenda tu cita"]</code></p>';
+  private function tabBranding() {
+    $primary = $this->get('brand_primary', '#111111');
+    $bg = $this->get('brand_bg', '#ffffff');
+    $text = $this->get('brand_text', '#111111');
+    $radius = $this->get('brand_radius', '14');
+    ?>
+    <form method="post">
+      <?php wp_nonce_field('miapp_save_branding'); ?>
+      <input type="hidden" name="miapp_tab" value="branding">
+      <table class="form-table" role="presentation">
+        <tr>
+          <th scope="row"><label>Color primario</label></th>
+          <td><input type="text" name="brand_primary" value="<?php echo esc_attr($primary); ?>" class="regular-text"></td>
+        </tr>
+        <tr>
+          <th scope="row"><label>Fondo</label></th>
+          <td><input type="text" name="brand_bg" value="<?php echo esc_attr($bg); ?>" class="regular-text"></td>
+        </tr>
+        <tr>
+          <th scope="row"><label>Texto</label></th>
+          <td><input type="text" name="brand_text" value="<?php echo esc_attr($text); ?>" class="regular-text"></td>
+        </tr>
+        <tr>
+          <th scope="row"><label>Radio</label></th>
+          <td><input type="number" min="0" name="brand_radius" value="<?php echo esc_attr($radius); ?>"></td>
+        </tr>
+      </table>
+      <?php submit_button('Guardar'); ?>
+      <p class="description">Tip: si vas a diseñar todo con Elementor, puedes activar “No cargar estilos del plugin” en General.</p>
+    </form>
+    <?php
   }
+
+  private function tabShortcodes() {
+    ?>
+    <div class="miapp-card" style="max-width:920px">
+      <h2>Shortcodes disponibles</h2>
+      <ul style="line-height:1.9">
+        <li><code>[miapp_booking_button label="Agendar cita"]</code> — Botón que abre el modal.</li>
+        <li><code>[miapp_booking]</code> — Vista simple de agenda embebida (no modal).</li>
+        <li><code>[miapp_patient]</code> — Panel paciente (legacy).</li>
+        <li><code>[miapp_patient_dashboard]</code> — Panel paciente (nuevo, recomendado).</li>
+        <li><code>[miapp_mia_dashboard]</code> — Dashboard privado para Mia (administradora).</li>
+      </ul>
+      <p class="description">Recomendación: crea una página “Mi cuenta” con el panel paciente y agrega también <code>[miapp_booking_button]</code> para permitir reagendar desde el panel.</p>
+    </div>
+    <?php
+  }
+
+  private function tabEmails() {
+    $subConfirm = get_option('miapp_email_subject_confirm','Confirmación de cita');
+    $subCancel = get_option('miapp_email_subject_cancel','Cita cancelada');
+    $subRes = get_option('miapp_email_subject_reschedule','Cita reagendada');
+    $subStatus = get_option('miapp_email_subject_status','Actualización de tu cita');
+
+    $tplConfirm = get_option('miapp_email_tpl_confirm', '');
+    $tplCancel = get_option('miapp_email_tpl_cancel', '');
+    $tplRes = get_option('miapp_email_tpl_reschedule', '');
+    $tplStatus = get_option('miapp_email_tpl_status', '');
+
+    $help = '<p class="description">Variables disponibles: <code>{{patient_name}}</code>, <code>{{doctor_name}}</code>, <code>{{date_human}}</code>, <code>{{service_name}}</code>, <code>{{session_number}}</code>, <code>{{status_label}}</code>, <code>{{meet_block}}</code>, <code>{{buttons_block}}</code>.</p>';
+
+    ?>
+    <form method="post">
+      <?php wp_nonce_field('miapp_save_emails'); ?>
+      <input type="hidden" name="miapp_tab" value="emails"/>
+
+      <h3>Asuntos</h3>
+      <table class="form-table">
+        <tr><th><label>Confirmación</label></th><td><input class="regular-text" type="text" name="email_subject_confirm" value="<?php echo esc_attr($subConfirm); ?>"></td></tr>
+        <tr><th><label>Cancelación</label></th><td><input class="regular-text" type="text" name="email_subject_cancel" value="<?php echo esc_attr($subCancel); ?>"></td></tr>
+        <tr><th><label>Reagendamiento</label></th><td><input class="regular-text" type="text" name="email_subject_reschedule" value="<?php echo esc_attr($subRes); ?>"></td></tr>
+        <tr><th><label>Cambio de estado (por Mia)</label></th><td><input class="regular-text" type="text" name="email_subject_status" value="<?php echo esc_attr($subStatus); ?>"></td></tr>
+      </table>
+
+      <h3>Plantillas (HTML)</h3>
+      <?php echo $help; ?>
+
+      <h4>Confirmación</h4>
+      <?php wp_editor($tplConfirm, 'email_tpl_confirm', ['textarea_name'=>'email_tpl_confirm','textarea_rows'=>10]); ?>
+
+      <h4>Cancelación</h4>
+      <?php wp_editor($tplCancel, 'email_tpl_cancel', ['textarea_name'=>'email_tpl_cancel','textarea_rows'=>10]); ?>
+
+      <h4>Reagendamiento</h4>
+      <?php wp_editor($tplRes, 'email_tpl_reschedule', ['textarea_name'=>'email_tpl_reschedule','textarea_rows'=>10]); ?>
+
+      <h4>Cambio de estado</h4>
+      <?php wp_editor($tplStatus, 'email_tpl_status', ['textarea_name'=>'email_tpl_status','textarea_rows'=>10]); ?>
+
+      <?php submit_button('Guardar'); ?>
+    </form>
+    <?php
+  }
+
+
 }

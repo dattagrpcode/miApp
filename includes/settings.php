@@ -14,8 +14,7 @@ class Miapp_Settings {
   }
 
   public function init() {
-    add_action('admin_menu', [$this, 'adminMenu']);
-    add_action('admin_init', [$this, 'registerSettings']);
+        add_action('admin_init', [$this, 'registerSettings']);
     add_action('wp_enqueue_scripts', [$this, 'enqueueBrandCssVars']);
   }
 
@@ -128,7 +127,16 @@ class Miapp_Settings {
       ."}";
 
     // Asegúrate de que el handle coincida con tu wp_enqueue_style del plugin
-    wp_register_style('miapp-css', MIAPP_URL.'assets/app.css', [], '0.1.0');
+    $disable = get_option('miapp_disable_css','0') === '1';
+    if ($disable) {
+      add_action('wp_head', function() use ($css) {
+        echo '<style id="miapp-css-vars">' . $css . '</style>';
+      });
+      return;
+    }
+
+    // Asegúrate de que el handle coincida con tu wp_enqueue_style del plugin
+    wp_register_style('miapp-css', MIAPP_URL.'assets/app.css', [], '0.5.1');
     wp_enqueue_style('miapp-css');
     wp_add_inline_style('miapp-css', $css);
   }

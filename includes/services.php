@@ -16,6 +16,8 @@ class Miapp_Services {
         'show_in_menu' => 'miapp', // ✅ queda dentro del menú Miapp
         'menu_icon' => 'dashicons-tag',
         'supports' => ['title', 'editor'],
+        'capability_type' => ['miapp_service','miapp_services'],
+        'map_meta_cap' => true,
       ]);
     });
 
@@ -38,6 +40,7 @@ class Miapp_Services {
     $dur = intval(get_post_meta($post->ID, '_miapp_duration_min', true) ?: 60);
     $buf = intval(get_post_meta($post->ID, '_miapp_buffer_min', true) ?: 10);
     $modes = (string) (get_post_meta($post->ID, '_miapp_modes', true) ?: 'VIRTUAL,PRESENTIAL');
+    $indications = (string) (get_post_meta($post->ID, '_miapp_indications', true) ?: '');
     $providerId = (string) (get_post_meta($post->ID, '_miapp_service_provider_id', true) ?: '0');
 
     wp_nonce_field('miapp_service_meta', 'miapp_service_meta_nonce');
@@ -67,6 +70,10 @@ class Miapp_Services {
 
     echo '<p><label>Modalidades permitidas (separadas por coma):</label><br>
       <input type="text" name="miapp_modes" value="'.esc_attr($modes).'" placeholder="VIRTUAL,PRESENTIAL">
+    </p>';
+
+    echo '<p><label>Indicaciones (se muestran en el resumen antes de confirmar):</label><br>
+      <textarea name="miapp_indications" rows="4" style="width:100%;">'.esc_textarea($indications).'</textarea>
     </p>';
 
     echo '<p><label>Profesional asignado:</label><br><select name="miapp_service_provider_id">';
@@ -107,6 +114,40 @@ class Miapp_Services {
     update_post_meta($postId, '_miapp_service_provider_id', $providerId);
   }
 
+  public static function listServicesByProvider(int $providerId): array {
+    $args = [
+      'post_type'=>'miapp_service',
+      'numberposts'=>-1,
+      'post_status'=>'publish',
+      'meta_key'=>'_miapp_service_provider_id',
+      'meta_value'=> (string)$providerId,
+      'orderby'=>'title',
+      'order'=>'ASC',
+    ];
+    $posts = get_posts($args);
+    return array_map([self::class,'mapServicePost'], $posts);
+  }
+
+  private static function mapServicePost($p): array {
+      $price = intval(get_post_meta($p->ID,'_miapp_price_cents',true));
+      $dur = intval(get_post_meta($p->ID,'_miapp_duration_min',true));
+      $buf = intval(get_post_meta($p->ID,'_miapp_buffer_min',true));
+      $modes = get_post_meta($p->ID,'_miapp_modes',true) ?: 'VIRTUAL,PRESENTIAL';
+      $ind = (string)(get_post_meta($p->ID,'_miapp_indications',true) ?: '');
+      $provider = intval(get_post_meta($p->ID,'_miapp_service_provider_id',true));
+      return [
+        'id'=>$p->ID,
+        'provider_id'=>$provider,
+        'name'=>get_the_title($p),
+        'description'=>wp_strip_all_tags($p->post_content),
+        'price_cents'=>$price,
+        'duration_min'=>$dur,
+        'buffer_min'=>$buf,
+        'modes'=>array_values(array_filter(array_map('trim', explode(',',$modes)))),
+        'indications'=>$ind,
+      ];
+  }
+
   public static function listServices(): array {
     $posts = get_posts([
       'post_type' => 'miapp_service',
@@ -132,6 +173,7 @@ class Miapp_Services {
         'buffer_min' => $buf,
         'modes' => $modes,
         'provider_id' => $providerId,
+        'indications' => wp_kses_post(get_post_meta($p->ID, '_miapp_indications', true) ?: ''),
       ];
     }, $posts);
   }
@@ -157,6 +199,7 @@ class Miapp_Services {
       'buffer_min' => $buf,
       'modes' => $modes,
       'provider_id' => $providerId,
+      'indications' => wp_kses_post(get_post_meta($id, '_miapp_indications', true) ?: ''),
     ];
   }
 }
